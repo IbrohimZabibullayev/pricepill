@@ -1,0 +1,25 @@
+# dependencies
+/node_modules
+
+# build
+/dist
+
+# env — MAXFIY! hech qachon commit qilmang
+.env
+.env.local
+.env.*.local
+
+# logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# generated prisma client
+/prisma/generated
+
+# vaqtinchalik fayllar
+/tmp
+*.tmp

@@ -1,25 +1,29 @@
 # dependencies
-/node_modules
+node_modules/
+**/node_modules/
 
 # build
-/dist
+dist/
+**/dist/
 
-# env — MAXFIY! hech qachon commit qilmang
+# env files
 .env
 .env.local
 .env.*.local
+**/.env
+**/.env.local
 
 # logs
 *.log
 npm-debug.log*
+**/*.log
 
 # OS
 .DS_Store
 Thumbs.db
 
-# generated prisma client
-/prisma/generated
-
-# vaqtinchalik fayllar
-/tmp
+# generated files
+/backend/prisma/generated
+/backend/tmp
+/client/tmp
 *.tmp

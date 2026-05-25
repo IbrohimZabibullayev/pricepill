@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
 // Lokal test rejimida (bazasiz) ishlatiladigan oddiy foydalanuvchi shakli.
-interface MemUser {
+export interface MemUser {
   id: number;
   telegramId: number;
   username?: string | null;
