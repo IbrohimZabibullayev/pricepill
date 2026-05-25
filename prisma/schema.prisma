@@ -1,0 +1,29 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id         Int        @id @default(autoincrement())
+  telegramId BigInt     @unique
+  username   String?
+  firstName  String?
+  phone      String?
+  createdAt  DateTime   @default(now())
+  analyses   Analysis[]
+}
+
+model Analysis {
+  id              Int      @id @default(autoincrement())
+  user            User     @relation(fields: [userId], references: [id])
+  userId          Int
+  ownFileName     String?
+  competitorCount Int      @default(0)
+  ownProductCount Int      @default(0)
+  matchedCount    Int      @default(0)
+  createdAt       DateTime @default(now())
+}
