@@ -19,6 +19,7 @@
     "@nestjs/common": "^10.4.4",
     "@nestjs/config": "^3.2.3",
     "@nestjs/core": "^10.4.4",
+    "@nestjs/platform-express": "^10.4.4",
     "@prisma/client": "^5.20.0",
     "exceljs": "^4.4.0",
     "fastest-levenshtein": "^1.0.16",
