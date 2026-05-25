@@ -8,7 +8,7 @@
     "build": "nest build",
     "start": "nest start",
     "start:dev": "nest start --watch",
-    "start:prod": "prisma db push && node dist/main",
+    "start:prod": "prisma db push || echo '⚠️  prisma db push failed — starting API in in-memory mode (no persistence)'; node dist/main",
     "postinstall": "prisma generate",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev --name init",
