@@ -238,10 +238,45 @@ function reportName(): string {
   return `PricePill_hisobot_${stamp}.xlsx`;
 }
 
-// Start the bot
-bot.launch().then(() => {
-  console.log('🟢 PricePill Bot client started successfully.');
-});
+// Start the bot.
+// launch() polls until the bot is stopped, and rejects on a fatal Telegram
+// error. A 409 Conflict means another instance is still polling the same
+// token — most often during Railway's zero-downtime deploys, where the old
+// container lingers a few seconds before SIGTERM. Retry with backoff so the
+// new instance waits it out instead of crash-looping.
+async function launchBot(): Promise<void> {
+  const MAX_CONFLICT_RETRIES = 10;
+  const RETRY_DELAY_MS = 5000;
+  let conflicts = 0;
+  let announced = false;
+
+  for (;;) {
+    try {
+      await bot.launch({ dropPendingUpdates: true }, () => {
+        if (!announced) {
+          announced = true;
+          console.log('🟢 PricePill Bot client started successfully.');
+        }
+      });
+      return; // resolved => bot was stopped gracefully
+    } catch (err: any) {
+      const code = err?.response?.error_code ?? err?.code;
+      if (code === 409 && conflicts < MAX_CONFLICT_RETRIES) {
+        conflicts += 1;
+        console.warn(
+          `⚠️  409 Conflict: another bot instance is still polling. ` +
+            `Retrying in ${RETRY_DELAY_MS / 1000}s (attempt ${conflicts}/${MAX_CONFLICT_RETRIES})...`,
+        );
+        await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
+        continue;
+      }
+      console.error('Bot launch failed:', err);
+      process.exit(1);
+    }
+  }
+}
+
+void launchBot();
 
 // Enable graceful stop
 process.once('SIGINT', () => bot.stop('SIGINT'));
