@@ -25,9 +25,7 @@ export const analyzeInlineKeyboard = Markup.inlineKeyboard([
 export const TEXT = {
   welcome: (name: string) =>
     `Assalomu alaykum, ${name}! 👋\n\n` +
-    `*PricePill* — farmatsevtlar uchun price-list taqqoslash xizmati.\n` +
-    `Siz o‘z narxlaringizni raqobatchilarникidan arzon yoki qimmatligini ` +
-    `bir necha soniyada bilib olasiz.\n\n` +
+    `*PricePill* — farmatsevtlar uchun oson narx tahlilchisi.\n\n` +
     `Davom etish uchun telefon raqamingizni yuboring 👇`,
 
   registered:
@@ -41,14 +39,14 @@ export const TEXT = {
     `📎 Faylni shu yerga biriktirib yuboring.`,
 
   askCompetitors:
-    `2️⃣ Endi *taqqoslamoqchi bo‘lgan* price-list(lar)ni yuboring.\n\n` +
+    `2️⃣ Endi *taqqoslash uchun* price-list(lar)ni yuboring.\n\n` +
     `Bir nechtasini ketma-ket yuborishingiz mumkin. ` +
     `Tugatgach «✅ Tahlil qilish» tugmasini bosing.`,
 
   notRegistered: 'Avval /start bosing va ro‘yxatdan o‘ting.',
   notXlsx: '⚠️ Faqat Excel (.xlsx) fayl qabul qilinadi. Qayta yuboring.',
   noOwnYet: 'Avval «📊 Yangi tahlil» tugmasidan boshlang.',
-  needCompetitors: '⚠️ Kamida bitta raqobatchi price-list yuboring.',
+  needCompetitors: '⚠️ Kamida bitta taqqoslash uchun price-list yuboring.',
   analyzing: '⏳ Tahlil qilinmoqda...',
   cancelled: '❌ Bekor qilindi.',
 
@@ -56,7 +54,7 @@ export const TEXT = {
     `*PricePill qanday ishlaydi?*\n\n` +
     `1. «📊 Yangi tahlil» ni bosasiz.\n` +
     `2. O‘z price-listingizni (.xlsx) yuborasiz.\n` +
-    `3. Raqobatchilar price-listini yuborasiz (bir nechta bo‘lishi mumkin).\n` +
+    `3. Taqqoslash uchun price-list(lar)ni yuborasiz (bir nechta bo‘lishi mumkin).\n` +
     `4. «✅ Tahlil qilish» ni bosasiz.\n` +
     `5. Tayyor Excel hisobotni olasiz: qaysi dorini qimmat yoki arzon ` +
     `sotayotganingiz — so‘mda, foizda va $ da.`,
