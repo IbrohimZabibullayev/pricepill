@@ -5,9 +5,10 @@ import { PricelistService } from '../pricelist/pricelist.service';
 import { MatchingService } from '../matching/matching.service';
 import { ReportService } from '../report/report.service';
 import { AnalysisController } from './analysis.controller';
+import { AiModule } from '../ai/ai.module';
 
 @Module({
-  imports: [UsersModule, CurrencyModule],
+  imports: [UsersModule, CurrencyModule, AiModule],
   controllers: [AnalysisController],
   providers: [
     PricelistService,
@@ -21,3 +22,4 @@ import { AnalysisController } from './analysis.controller';
   ],
 })
 export class AnalysisModule {}
+

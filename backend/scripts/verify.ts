@@ -8,13 +8,16 @@ import * as path from 'path';
 import { PricelistService } from '../src/pricelist/pricelist.service';
 import { MatchingService } from '../src/matching/matching.service';
 import { ReportService } from '../src/report/report.service';
+import { AnthropicService } from '../src/ai/anthropic.service';
 
-const fakeConfig: any = { get: (_k: string) => undefined };
+const fakeConfig: any = { get: (k: string) => process.env[k] };
+const fakeCurrency: any = { getUsdRate: async () => 12600 };
 
 async function main() {
   const dir = path.join(process.cwd(), 'sample');
   const pricelist = new PricelistService();
-  const matching = new MatchingService(fakeConfig);
+  const ai = new AnthropicService(fakeConfig);
+  const matching = new MatchingService(fakeConfig, fakeCurrency, ai);
   const report = new ReportService(fakeConfig);
 
   const own = await pricelist.parse(fs.readFileSync(path.join(dir, 'own.xlsx')), 'own.xlsx');
@@ -23,7 +26,7 @@ async function main() {
     'competitor.xlsx',
   );
 
-  const rows = matching.compare(own, [comp]);
+  const rows = await matching.compare(own, [comp]);
 
   console.log('\n=== TAQQOSLASH NATIJASI ===');
   for (const r of rows) {
