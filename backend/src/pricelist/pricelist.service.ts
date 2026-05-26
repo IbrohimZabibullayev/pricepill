@@ -105,13 +105,15 @@ export class PricelistService {
       row.eachCell((cell, col) => {
         const text = this.norm(String(cell.value ?? ''));
         if (!text) return;
-        (Object.keys(COLUMN_ALIASES) as (keyof ColumnMap)[]).forEach((key) => {
-          if (columns[key] !== -1) return;
+        
+        for (const key of Object.keys(COLUMN_ALIASES) as (keyof ColumnMap)[]) {
+          if (columns[key] !== -1) continue;
           if (COLUMN_ALIASES[key].some((a) => text === this.norm(a) || text.includes(this.norm(a)))) {
             columns[key] = col;
             matched++;
+            break; // Ustun bitta maydonga mos kelgach, boshqasiga ham o'zlashmasligi uchun to'xtatamiz!
           }
-        });
+        }
       });
       if (matched > best.score) best = { headerRow: r, columns, score: matched };
     }
