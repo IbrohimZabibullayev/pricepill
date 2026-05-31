@@ -33,9 +33,11 @@ export const TEXT = {
     `Tahlilni boshlash uchun «📊 Yangi tahlil» tugmasini bosing.`,
 
   askOwn:
-    `1️⃣ *O‘z price-listingizni* yuboring (Excel .xlsx).\n\n` +
+    `1️⃣ *O‘z price-listingizni* yuboring (Excel .xlsx yoki .xls).\n\n` +
     `Faylda quyidagi ustunlar bo‘lishi kerak:\n` +
-    `• *Nomi*\n• *Ishlab chiqaruvchi*\n• *Kelish narxi*\n• *Sotish narxi*\n\n` +
+    `• *Nomi* (majburiy)\n• *Sotish narxi* (majburiy)\n` +
+    `• *Ishlab chiqaruvchi*, *Davlat*, *Kelish narxi* (ixtiyoriy)\n\n` +
+    `🌍 Fayl istalgan tilda bo‘lishi mumkin (o‘zbek, rus, ingliz, fransuz...).\n` +
     `📎 Faylni shu yerga biriktirib yuboring.`,
 
   askCompetitors:
@@ -44,7 +46,7 @@ export const TEXT = {
     `Tugatgach «✅ Tahlil qilish» tugmasini bosing.`,
 
   notRegistered: 'Avval /start bosing va ro‘yxatdan o‘ting.',
-  notXlsx: '⚠️ Faqat Excel (.xlsx) fayl qabul qilinadi. Qayta yuboring.',
+  notXlsx: '⚠️ Faqat Excel (.xlsx yoki .xls) fayl qabul qilinadi. Qayta yuboring.',
   noOwnYet: 'Avval «📊 Yangi tahlil» tugmasidan boshlang.',
   needCompetitors: '⚠️ Kamida bitta taqqoslash uchun price-list yuboring.',
   analyzing: '⏳ Tahlil qilinmoqda...',

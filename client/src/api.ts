@@ -6,6 +6,21 @@ const api = axios.create({
   baseURL: BACKEND_URL,
 });
 
+// Backend xatolarining tafsilotini ochib beramiz. Axios standart `error.message`
+// faqat «Request failed with status code 500» deydi — backend yuborgan o'zbekcha
+// izoh (masalan «kerakli ustunlar topilmadi») esa `response.data.message` da yotadi.
+api.interceptors.response.use(
+  (res) => res,
+  (error) => {
+    const backendMsg =
+      error.response?.data?.message ?? error.response?.data?.error;
+    if (backendMsg) {
+      error.message = typeof backendMsg === 'string' ? backendMsg : String(backendMsg);
+    }
+    return Promise.reject(error);
+  },
+);
+
 export interface User {
   id: number;
   telegramId: number;

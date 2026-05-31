@@ -1,6 +1,8 @@
 export interface Product {
   name: string;
   manufacturer: string;
+  /** Keladigan davlat — ixtiyoriy, faqat ma'lumot uchun (moslikka ta'sir qilmaydi) */
+  country: string;
   purchasePrice: number | null;
   sellPrice: number | null;
   row: number; // Excel'dagi qator raqami (xatolikni ko'rsatish uchun)
@@ -23,6 +25,5 @@ export interface ComparisonRow {
   bestHit: MatchHit | null; // eng arzon raqobatchi narxi bo'yicha tanlangan
   diffSom: number | null; // mening narxim - raqobatchi narxi (+ => qimmat sotyapman)
   diffPercent: number | null;
-  diffUsd: number | null;
   verdict: 'EXPENSIVE' | 'CHEAP' | 'EQUAL' | 'NOT_FOUND';
 }

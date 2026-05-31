@@ -19,13 +19,13 @@ export interface AiMatchRequest {
   ownProduct: {
     name: string;
     manufacturer?: string | null;
-    form?: string | null;
+    country?: string | null;
   };
   candidates: Array<{
     candidateIndex: number;
     name: string;
     manufacturer?: string | null;
-    form?: string | null;
+    country?: string | null;
   }>;
 }
 
@@ -87,24 +87,28 @@ export class AnthropicService {
       const cands = r.candidates
         .map(
           (c, i) =>
-            `  ${i}: "${c.name}"${c.manufacturer ? ` (${c.manufacturer})` : ''}${c.form ? ` [${c.form}]` : ''}`,
+            `  ${i}: "${c.name}"${c.manufacturer ? ` (${c.manufacturer})` : ''}${c.country ? ` {${c.country}}` : ''}`,
         )
         .join('\n');
       return (
         `OWN[${r.ownIndex}]: "${r.ownProduct.name}"` +
         (r.ownProduct.manufacturer ? ` (${r.ownProduct.manufacturer})` : '') +
-        (r.ownProduct.form ? ` [${r.ownProduct.form}]` : '') +
+        (r.ownProduct.country ? ` {${r.ownProduct.country}}` : '') +
         `\nNOMINATED CANDIDATES:\n${cands}`
       );
     });
 
-    return `You are a pharmaceutical product matching expert. 
+    return `You are a pharmaceutical product matching expert working across MULTIPLE LANGUAGES.
 For each OWN product below, identify which NOMINATED CANDIDATE (if any) refers to the same drug product — same active substance, same dosage form (tablet/capsule/syrup/etc), and same strength/dosage.
+
+The product names may be written in DIFFERENT LANGUAGES and scripts (e.g. Uzbek Latin, Uzbek Cyrillic, Russian, English, French). Match by MEANING — the underlying drug — not by spelling. Notation in parentheses "(...)" is the manufacturer; notation in braces "{...}" is the country of origin.
 
 Rules:
 - Brand names and generic names for the same substance ARE a match (e.g. "No-shpa" and "Drotaverin").
+- The same drug named in different languages IS a match (e.g. "Парацетамол" = "Paratsetamol" = "Paracétamol" = "Paracetamol").
 - Different dosages (e.g. 500mg vs 250mg) are NOT a match.
 - Different dosage forms (tablet vs syrup) are NOT a match.
+- Country of origin and manufacturer are extra context only — DO NOT reject a match just because the country or manufacturer differs.
 - If NO candidate matches, use candidateIndex -1.
 - Respond ONLY with a valid JSON array, no explanation.
 

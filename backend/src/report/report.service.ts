@@ -1,7 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import * as ExcelJS from 'exceljs';
 import { ComparisonRow } from '../pricelist/pricelist.types';
-import { CurrencyService } from '../currency/currency.service';
 
 const borderStyle: Partial<ExcelJS.Borders> = {
   top: { style: 'thin', color: { argb: 'FFE0E0E0' } },
@@ -12,25 +11,21 @@ const borderStyle: Partial<ExcelJS.Borders> = {
 
 @Injectable()
 export class ReportService {
-  constructor(private readonly currencyService: CurrencyService) {}
-
   async build(rows: ComparisonRow[], ownFileName: string): Promise<Buffer> {
     const wb = new ExcelJS.Workbook();
     wb.creator = 'PricePill';
     wb.created = new Date();
 
-    const usdRate = await this.currencyService.getUsdRate();
-
     // Taqqoslash jadvali birinchi sahifa bo'lib chiqadi (Default ochiladi)
-    this.buildComparisonSheet(wb, rows, usdRate);
-    this.buildSummarySheet(wb, rows, ownFileName, usdRate);
+    this.buildComparisonSheet(wb, rows);
+    this.buildSummarySheet(wb, rows, ownFileName);
     this.buildNotFoundSheet(wb, rows);
 
     const out = await wb.xlsx.writeBuffer();
     return Buffer.from(out);
   }
 
-  private buildComparisonSheet(wb: ExcelJS.Workbook, rows: ComparisonRow[], usdRate: number) {
+  private buildComparisonSheet(wb: ExcelJS.Workbook, rows: ComparisonRow[]) {
     const ws = wb.addWorksheet('Taqqoslash jadvali');
     ws.views = [{ state: 'frozen', ySplit: 1 }];
 
@@ -38,15 +33,16 @@ export class ReportService {
       '№',
       'Nomi',
       'Ishlab chiqaruvchi',
+      'Davlat',
       'Mening kelish narxim',
-      'Raqobatchi kelish narxi',
-      'Kelish narxi farqi',
       'Mening sotish narxim',
+      'Raqobatdagi nomi',
+      'Raqobatchi davlati',
+      'Raqobatchi kelish narxi',
       'Raqobatchi sotish narxi',
       'Sotish narxi farqi',
       'Sotish farqi (%)',
-      'Sotish farqi ($)',
-      'Raqobatchi',
+      'Raqobatchi (fayl)',
     ];
 
     const headerRow = ws.addRow(headers);
@@ -60,40 +56,39 @@ export class ReportService {
 
     const found = rows.filter((r) => r.verdict !== 'NOT_FOUND');
     found.forEach((r, i) => {
-      const diffUsd = r.diffUsd;
-      const myPurchase = r.own.purchasePrice;
-      const compPurchase = r.bestHit?.product.purchasePrice ?? null;
-      const purchaseDiff = (myPurchase != null && compPurchase != null) ? myPurchase - compPurchase : null;
+      const compProduct = r.bestHit?.product ?? null;
+      const sellPct = r.diffPercent != null ? r.diffPercent / 100 : null;
 
       const row = ws.addRow([
         i + 1,
         r.own.name,
         r.own.manufacturer || '—',
-        myPurchase,
-        compPurchase,
-        purchaseDiff,
+        r.own.country || '—',
+        r.own.purchasePrice,
         r.own.sellPrice,
-        r.bestHit?.product.sellPrice ?? null,
+        compProduct?.name ?? '—',
+        compProduct?.country || '—',
+        compProduct?.purchasePrice ?? null,
+        compProduct?.sellPrice ?? null,
         r.diffSom,
-        r.diffPercent != null ? r.diffPercent / 100 : null,
-        diffUsd,
+        sellPct,
         r.bestHit?.competitorFile ?? '—',
       ]);
       row.height = 22;
 
-      // Hujayralarni formatlash
       this.setCell(row.getCell(1), i + 1, undefined, 'center');
       this.setCell(row.getCell(2), r.own.name, undefined, 'left');
       this.setCell(row.getCell(3), r.own.manufacturer || '—', undefined, 'left');
-      this.setCell(row.getCell(4), myPurchase, '#,##0', 'right');
-      this.setCell(row.getCell(5), compPurchase, '#,##0', 'right');
-      this.setCell(row.getCell(6), purchaseDiff, '#,##0', 'right');
-      this.setCell(row.getCell(7), r.own.sellPrice, '#,##0', 'right');
-      this.setCell(row.getCell(8), r.bestHit?.product.sellPrice ?? null, '#,##0', 'right');
-      this.setCell(row.getCell(9), r.diffSom, '#,##0', 'right');
-      this.setCell(row.getCell(10), r.diffPercent != null ? r.diffPercent / 100 : null, '0.0%', 'right');
-      this.setCell(row.getCell(11), diffUsd, '$#,##0.00', 'right');
-      this.setCell(row.getCell(12), r.bestHit?.competitorFile ?? '—', undefined, 'left');
+      this.setCell(row.getCell(4), r.own.country || '—', undefined, 'left');
+      this.setCell(row.getCell(5), r.own.purchasePrice, '#,##0', 'right');
+      this.setCell(row.getCell(6), r.own.sellPrice, '#,##0', 'right');
+      this.setCell(row.getCell(7), compProduct?.name ?? '—', undefined, 'left');
+      this.setCell(row.getCell(8), compProduct?.country || '—', undefined, 'left');
+      this.setCell(row.getCell(9), compProduct?.purchasePrice ?? null, '#,##0', 'right');
+      this.setCell(row.getCell(10), compProduct?.sellPrice ?? null, '#,##0', 'right');
+      this.setCell(row.getCell(11), r.diffSom, '#,##0', 'right');
+      this.setCell(row.getCell(12), sellPct, '0.0%', 'right');
+      this.setCell(row.getCell(13), r.bestHit?.competitorFile ?? '—', undefined, 'left');
 
       // Qimmat sotyapsiz — yumshoq qizil, arzon — yumshoq yashil
       const color =
@@ -105,11 +100,11 @@ export class ReportService {
       }
     });
 
-    ws.autoFilter = { from: 'A1', to: 'L1' };
+    ws.autoFilter = { from: 'A1', to: 'M1' };
     this.autofitColumns(ws);
   }
 
-  private buildSummarySheet(wb: ExcelJS.Workbook, rows: ComparisonRow[], ownFileName: string, usdRate: number) {
+  private buildSummarySheet(wb: ExcelJS.Workbook, rows: ComparisonRow[], ownFileName: string) {
     const ws = wb.addWorksheet('Tahlil xulosasi');
     const found = rows.filter((r) => r.verdict !== 'NOT_FOUND');
     const expensive = found.filter((r) => r.verdict === 'EXPENSIVE');
@@ -119,7 +114,6 @@ export class ReportService {
         ? 0
         : found.reduce((s, r) => s + (r.diffPercent ?? 0), 0) / found.length;
 
-    // Sarlavha qatorlari
     ws.addRow([]);
     const headerRow = ws.addRow(['PricePill — Tahlil Xulosasi']);
     headerRow.getCell(1).font = { bold: true, size: 16, color: { argb: 'FF1F497D' } };
@@ -155,7 +149,6 @@ export class ReportService {
     addSummaryRow('Qimmat sotilayotganlari', expensive.length, '#,##0');
     addSummaryRow('Arzon sotilayotganlari', cheap.length, '#,##0');
     addSummaryRow("O'rtacha sotish farqi (%)", avgPct / 100, '0.0%');
-    addSummaryRow('USD Kursi (CBU API)', usdRate, '$#,##0.00');
 
     ws.getColumn(1).width = 34;
     ws.getColumn(2).width = 38;
@@ -165,7 +158,7 @@ export class ReportService {
     const ws = wb.addWorksheet('Topilmadi');
     ws.views = [{ state: 'frozen', ySplit: 1 }];
 
-    const headers = ['№', 'Nomi', 'Ishlab chiqaruvchi', 'Mening kelish narxim', 'Mening sotish narxim'];
+    const headers = ['№', 'Nomi', 'Ishlab chiqaruvchi', 'Davlat', 'Mening kelish narxim', 'Mening sotish narxim'];
     const headerRow = ws.addRow(headers);
     headerRow.height = 28;
     headerRow.eachCell((cell) => {
@@ -181,6 +174,7 @@ export class ReportService {
         i + 1,
         r.own.name,
         r.own.manufacturer || '—',
+        r.own.country || '—',
         r.own.purchasePrice,
         r.own.sellPrice,
       ]);
@@ -189,8 +183,9 @@ export class ReportService {
       this.setCell(row.getCell(1), i + 1, undefined, 'center');
       this.setCell(row.getCell(2), r.own.name, undefined, 'left');
       this.setCell(row.getCell(3), r.own.manufacturer || '—', undefined, 'left');
-      this.setCell(row.getCell(4), r.own.purchasePrice, '#,##0', 'right');
-      this.setCell(row.getCell(5), r.own.sellPrice, '#,##0', 'right');
+      this.setCell(row.getCell(4), r.own.country || '—', undefined, 'left');
+      this.setCell(row.getCell(5), r.own.purchasePrice, '#,##0', 'right');
+      this.setCell(row.getCell(6), r.own.sellPrice, '#,##0', 'right');
     });
 
     this.autofitColumns(ws);
@@ -225,7 +220,7 @@ export class ReportService {
           }
         });
       }
-      column.width = Math.max(maxLen + 4, 10);
+      column.width = Math.min(Math.max(maxLen + 4, 10), 45);
     });
   }
 }

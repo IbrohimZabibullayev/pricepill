@@ -1,5 +1,5 @@
 import { Controller, Post, Body, HttpException, HttpStatus } from '@nestjs/common';
-import { PricelistService } from '../pricelist/pricelist.service';
+import { PricelistService, PriceListParseError } from '../pricelist/pricelist.service';
 import { MatchingService } from '../matching/matching.service';
 import { ReportService } from '../report/report.service';
 import { UsersService } from '../users/users.service';
@@ -66,23 +66,34 @@ export class AnalysisController {
         reportBase64: buffer.toString('base64'),
       };
     } catch (e: any) {
+      // Faylga oid (parse) xatolar foydalanuvchi tomonidagi muammo — 400.
+      // Qolganlari kutilmagan ichki xato — 500.
+      const status =
+        e instanceof PriceListParseError
+          ? HttpStatus.BAD_REQUEST
+          : HttpStatus.INTERNAL_SERVER_ERROR;
       throw new HttpException(
         e.message || 'Tahlilda kutilmagan xatolik yuz berdi.',
-        HttpStatus.INTERNAL_SERVER_ERROR,
+        status,
       );
     }
   }
 
   private async downloadAndParse(file: { fileName: string; url: string }): Promise<PriceList> {
+    let buffer: Buffer;
     try {
       const res = await fetch(file.url);
       if (!res.ok) {
-        throw new Error(`CBU/Telegram returned ${res.status}`);
+        throw new Error(`Telegram returned ${res.status}`);
       }
-      const buffer = Buffer.from(await res.arrayBuffer());
-      return this.pricelist.parse(buffer, file.fileName);
+      buffer = Buffer.from(await res.arrayBuffer());
     } catch (err: any) {
-      throw new Error(`«${file.fileName}» faylini yuklab bo‘lmadi yoki o‘qishda xato: ${err.message}`);
+      // Faqat yuklab olishdagi xato — parse xatosini bu yerda yashirmaymiz.
+      throw new PriceListParseError(
+        `«${file.fileName}» faylini yuklab bo‘lmadi: ${err.message}`,
+      );
     }
+    // parse() o'zining PriceListParseError'ini aniq xabar bilan otadi — uni o'tkazib yuboramiz.
+    return this.pricelist.parse(buffer, file.fileName);
   }
 }

@@ -11,14 +11,13 @@ import { ReportService } from '../src/report/report.service';
 import { AnthropicService } from '../src/ai/anthropic.service';
 
 const fakeConfig: any = { get: (k: string) => process.env[k] };
-const fakeCurrency: any = { getUsdRate: async () => 12600 };
 
 async function main() {
   const dir = path.join(process.cwd(), 'sample');
   const pricelist = new PricelistService();
   const ai = new AnthropicService(fakeConfig);
-  const matching = new MatchingService(fakeConfig, fakeCurrency, ai);
-  const report = new ReportService(fakeConfig);
+  const matching = new MatchingService(fakeConfig, ai);
+  const report = new ReportService();
 
   const own = await pricelist.parse(fs.readFileSync(path.join(dir, 'own.xlsx')), 'own.xlsx');
   const comp = await pricelist.parse(

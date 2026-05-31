@@ -224,9 +224,12 @@ bot.action('analyze', async (ctx) => {
 function isXlsx(doc: any): boolean {
   if (!doc) return false;
   const name = String(doc.file_name ?? '').toLowerCase();
+  const mime = String(doc.mime_type ?? '');
   return (
     name.endsWith('.xlsx') ||
-    doc.mime_type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    name.endsWith('.xls') ||
+    mime === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+    mime === 'application/vnd.ms-excel'
   );
 }
 

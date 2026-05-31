@@ -3,7 +3,6 @@ import { ConfigService } from '@nestjs/config';
 import { distance } from 'fastest-levenshtein';
 import { ComparisonRow, MatchHit, PriceList, Product } from '../pricelist/pricelist.types';
 import { transliterate } from './translit';
-import { CurrencyService } from '../currency/currency.service';
 import { AnthropicService, AiMatchRequest } from '../ai/anthropic.service';
 
 /** Raqobatchi mahsulot + uning lokal skori */
@@ -35,7 +34,6 @@ export class MatchingService {
 
   constructor(
     config: ConfigService,
-    private readonly currencyService: CurrencyService,
     private readonly ai: AnthropicService,
   ) {
     this.threshold = Number(config.get('MATCH_THRESHOLD') ?? LOCAL_THRESHOLD);
@@ -43,12 +41,10 @@ export class MatchingService {
 
   // O'z price-listni bir nechta raqobatchi listga taqqoslaydi.
   async compare(own: PriceList, competitors: PriceList[]): Promise<ComparisonRow[]> {
-    const usdRate = await this.currencyService.getUsdRate();
-
     if (this.ai.isEnabled) {
-      return this.compareWithAi(own, competitors, usdRate);
+      return this.compareWithAi(own, competitors);
     }
-    return own.products.map((p) => this.compareOneLocal(p, competitors, usdRate));
+    return own.products.map((p) => this.compareOneLocal(p, competitors));
   }
 
   // ─────────────────────── AI HYBRID PATH ───────────────────────
@@ -56,7 +52,6 @@ export class MatchingService {
   private async compareWithAi(
     own: PriceList,
     competitors: PriceList[],
-    usdRate: number,
   ): Promise<ComparisonRow[]> {
     // 1. Har bir o'z mahsuloti uchun nomzodlarni lokal filtr bilan topamiz
     const ownsWithCandidates: OwnWithCandidates[] = own.products.map((p, ownIndex) => ({
@@ -79,14 +74,14 @@ export class MatchingService {
         ownIndex: o.ownIndex,
         ownProduct: {
           name: o.own.name,
-          manufacturer: o.own.manufacturer,
-          form: null,
+          manufacturer: o.own.manufacturer || null,
+          country: o.own.country || null,
         },
         candidates: o.candidates.map((c, ci) => ({
           candidateIndex: ci,
           name: c.product.name,
-          manufacturer: c.product.manufacturer,
-          form: null,
+          manufacturer: c.product.manufacturer || null,
+          country: c.product.country || null,
         })),
       }));
 
@@ -116,7 +111,7 @@ export class MatchingService {
         }
       }
 
-      return this.buildRow(own, bestHit ? [bestHit] : [], usdRate);
+      return this.buildRow(own, bestHit ? [bestHit] : []);
     });
   }
 
@@ -150,13 +145,13 @@ export class MatchingService {
 
   // ─────────────────────── LOCAL FALLBACK PATH ───────────────────────
 
-  private compareOneLocal(own: Product, competitors: PriceList[], usdRate: number): ComparisonRow {
+  private compareOneLocal(own: Product, competitors: PriceList[]): ComparisonRow {
     const hits: MatchHit[] = [];
     for (const comp of competitors) {
       const hit = this.bestMatchLocal(own, comp);
       if (hit) hits.push(hit);
     }
-    return this.buildRow(own, hits, usdRate);
+    return this.buildRow(own, hits);
   }
 
   private bestMatchLocal(own: Product, comp: PriceList): MatchHit | null {
@@ -172,14 +167,13 @@ export class MatchingService {
 
   // ─────────────────────── SHARED HELPERS ───────────────────────
 
-  private buildRow(own: Product, hits: MatchHit[], usdRate: number): ComparisonRow {
+  private buildRow(own: Product, hits: MatchHit[]): ComparisonRow {
     if (hits.length === 0 || own.sellPrice == null) {
       return {
         own,
         bestHit: hits[0] ?? null,
         diffSom: null,
         diffPercent: null,
-        diffUsd: null,
         verdict: 'NOT_FOUND',
       };
     }
@@ -187,7 +181,7 @@ export class MatchingService {
     // Eng arzon raqobatchi narxini tanlaymiz — "men eng arzondan ham qimmatmi?"
     const priced = hits.filter((h) => h.product.sellPrice != null);
     if (priced.length === 0) {
-      return { own, bestHit: hits[0], diffSom: null, diffPercent: null, diffUsd: null, verdict: 'NOT_FOUND' };
+      return { own, bestHit: hits[0], diffSom: null, diffPercent: null, verdict: 'NOT_FOUND' };
     }
     const bestHit = priced.reduce((a, b) =>
       (a.product.sellPrice as number) <= (b.product.sellPrice as number) ? a : b,
@@ -196,13 +190,12 @@ export class MatchingService {
     const compPrice = bestHit.product.sellPrice as number;
     const diffSom = own.sellPrice - compPrice;
     const diffPercent = compPrice !== 0 ? (diffSom / compPrice) * 100 : null;
-    const diffUsd = usdRate > 0 ? diffSom / usdRate : null;
 
     let verdict: ComparisonRow['verdict'] = 'EQUAL';
     if (diffSom > 0) verdict = 'EXPENSIVE';
     else if (diffSom < 0) verdict = 'CHEAP';
 
-    return { own, bestHit, diffSom, diffPercent, diffUsd, verdict };
+    return { own, bestHit, diffSom, diffPercent, verdict };
   }
 
   // Levenshtein nisbati va token (so'z) to'plami o'xshashligidan kattasi.
