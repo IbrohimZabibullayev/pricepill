@@ -59,7 +59,7 @@ export class PricelistService {
     // SheetJS .xlsx VA eski .xls (BIFF) formatini ham o'qiydi.
     let rows: Cell[][];
     try {
-      const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: true });
+      const workbook = XLSX.read(buffer, { type: 'buffer' });
       const sheetName = workbook.SheetNames[0];
       const sheet = sheetName ? workbook.Sheets[sheetName] : undefined;
       if (!sheet) {
@@ -116,9 +116,11 @@ export class PricelistService {
     return { fileName, products };
   }
 
-  // Birinchi 8 qatordan sarlavha qatorini va ustunlar joylashuvini topadi.
+  // Sarlavha qatorini topadi. Dorixona/1C prays-listlari yuqorida ko'p
+  // metama'lumot (kompaniya nomi, manzil, sana...) saqlaydi — shuning uchun
+  // 25 qatorgacha skanlaymiz va eng ko'p ustun mos kelgan qatorni tanlaymiz.
   private detectColumns(rows: Cell[][]): { headerRow: number; columns: ColumnMap } {
-    const maxScan = Math.min(8, rows.length);
+    const maxScan = Math.min(25, rows.length);
     let best = { headerRow: 0, columns: this.emptyMap(), score: -1 };
 
     for (let r = 0; r < maxScan; r++) {
