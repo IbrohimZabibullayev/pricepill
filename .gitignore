@@ -27,3 +27,9 @@ Thumbs.db
 /backend/tmp
 /client/tmp
 *.tmp
+
+# Claude Code va vaqtinchalik skriptlar
+.claude/
+_bench.ps1
+_probe*.ts
+_*.txt
