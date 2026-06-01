@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import * as XLSX from 'xlsx';
 import { Currency, PriceList, Product } from './pricelist.types';
+import { AnthropicService } from '../ai/anthropic.service';
 
 // Ustun sarlavhalarini turli yozuvlardan tanib olish uchun aliaslar.
 // Ko'p tilli: o'zbek (lotin/kirill), rus, ingliz, fransuz, nemis, ispan, italyan,
@@ -75,6 +76,8 @@ export class PriceListParseError extends Error {}
 export class PricelistService {
   private readonly logger = new Logger(PricelistService.name);
 
+  constructor(private readonly ai: AnthropicService) {}
+
   async parse(buffer: Buffer, fileName: string): Promise<PriceList> {
     // SheetJS .xlsx VA eski .xls (BIFF) formatini ham o'qiydi.
     let rows: Cell[][];
@@ -104,10 +107,20 @@ export class PricelistService {
 
     const { headerRow, columns } = this.detectColumns(rows);
 
-    // Lug'at bilan topilmasa — ustun TARKIBIGA qarab taxmin qilamiz. Bu nemis,
-    // ispan yoki boshqa noma'lum tildagi sarlavhalar uchun ham ishlaydi:
-    // matnli ustun = nom, narxga o'xshash sonli ustun = narx.
+    // 1) Lug'at bilan topilmagan nom/narxni ustun TARKIBIGA qarab taxmin qilamiz.
     this.inferMissingColumns(rows, headerRow, columns);
+
+    // 2) Hali ham biror muhim ustun topilmasa — AI'dan so'raymiz (har qanday til).
+    //    Bu fayl boshida 1 marta chaqiriladi, juda arzon. Davlat/yetkazib beruvchi
+    //    ustunlari ham aniqlanadi.
+    const needAi =
+      columns.name === -1 ||
+      columns.sellPrice === -1 ||
+      columns.manufacturer === -1 ||
+      columns.country === -1;
+    if (needAi && this.ai.isEnabled) {
+      await this.resolveColumnsWithAi(rows, headerRow, columns, fileName);
+    }
 
     if (columns.name === -1 || columns.sellPrice === -1) {
       throw new PriceListParseError(
@@ -220,6 +233,42 @@ export class PricelistService {
 
   private emptyMap(): ColumnMap {
     return { name: -1, manufacturer: -1, country: -1, purchasePrice: -1, sellPrice: -1 };
+  }
+
+  /**
+   * Lug'at va content-fallback yetmaganda — AI'dan ustunlarni aniqlashni so'raydi.
+   * Har qanday tilda ishlaydi. Faqat HALI TOPILMAGAN ustunlarni to'ldiradi
+   * (lug'at topgan ustunlarni o'zgartirmaydi). Xato bo'lsa — jim o'tib ketadi.
+   */
+  private async resolveColumnsWithAi(
+    rows: Cell[][],
+    headerRow: number,
+    columns: ColumnMap,
+    fileName: string,
+  ): Promise<void> {
+    const header = (rows[headerRow] ?? []).map((c) => this.cellString(c));
+    const samples = rows
+      .slice(headerRow + 1, headerRow + 4)
+      .map((r) => (r ?? []).map((c) => this.cellString(c)));
+
+    const ai = await this.ai.detectColumnsAi(header, samples);
+    if (!ai) return;
+
+    // Faqat topilmagan ustunlarni to'ldiramiz; band indekslarni qayta ishlatmaymiz.
+    const taken = new Set(Object.values(columns).filter((v) => v !== -1) as number[]);
+    const fill = (key: keyof ColumnMap, idx: number) => {
+      if (columns[key] === -1 && idx !== -1 && !taken.has(idx)) {
+        columns[key] = idx;
+        taken.add(idx);
+      }
+    };
+    fill('name', ai.name);
+    fill('sellPrice', ai.sellPrice);
+    fill('purchasePrice', ai.purchasePrice);
+    fill('manufacturer', ai.manufacturer);
+    fill('country', ai.country);
+
+    this.logger.log(`«${fileName}»: ustunlar AI bilan aniqlandi (har qanday til uchun).`);
   }
 
   /**

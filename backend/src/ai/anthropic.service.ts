@@ -13,6 +13,15 @@ export interface AiMatchResult {
   confidence: number;
 }
 
+/** AI ustun aniqlash natijasi — har maydon uchun 0-asosli indeks yoki -1 */
+export interface AiColumnResult {
+  name: number;
+  sellPrice: number;
+  purchasePrice: number;
+  manufacturer: number;
+  country: number;
+}
+
 /** AI ga yuboriladigan bitta taqqoslash so'rovi */
 export interface AiMatchRequest {
   ownIndex: number;
@@ -116,27 +125,45 @@ export class AnthropicService {
    */
   async matchBatch(requests: AiMatchRequest[]): Promise<AiMatchResult[]> {
     if (!this.client || !this.enabled || requests.length === 0) return [];
-
     const prompt = this.buildPrompt(requests);
-    const est = this.estimateTokens(prompt);
+    const text = await this.callModel(prompt, 1024);
+    return text ? this.parseResponse(text) : [];
+  }
 
+  /**
+   * Fayl sarlavhalarini AI bilan aniqlaydi — lug'at topa olmaganda chaqiriladi.
+   * Har qanday tilda ishlaydi (portugal, yapon, arab...). Fayl boshida 1 marta.
+   * `header` — sarlavha qatori, `samples` — bir necha ma'lumot qatori (kontekst).
+   * Natija: har maydon uchun 0-asosli ustun indeksi yoki -1.
+   */
+  async detectColumnsAi(
+    header: string[],
+    samples: string[][],
+  ): Promise<AiColumnResult | null> {
+    if (!this.client || !this.enabled || header.length === 0) return null;
+    const prompt = this.buildColumnPrompt(header, samples);
+    const text = await this.callModel(prompt, 256);
+    if (!text) return null;
+    return this.parseColumnResponse(text, header.length);
+  }
+
+  /** Model chaqiruvi — token byudjet + 429 retry. Matn yoki null qaytaradi. */
+  private async callModel(prompt: string, maxTokens: number): Promise<string | null> {
+    if (!this.client) return null;
+    const est = this.estimateTokens(prompt);
     for (let attempt = 0; ; attempt++) {
-      await this.budget.acquire(est); // limitdan oshmaslik uchun kutadi
+      await this.budget.acquire(est);
       try {
         const message = await this.client.messages.create({
           model: this.model,
-          max_tokens: 1024,
+          max_tokens: maxTokens,
           messages: [{ role: 'user', content: prompt }],
         });
-
-        const text = message.content
+        return message.content
           .filter((c) => c.type === 'text')
           .map((c) => (c as { type: 'text'; text: string }).text)
           .join('');
-
-        return this.parseResponse(text);
       } catch (err: any) {
-        // 429 — rate limit. retry-after ni kutib qayta uramiz.
         if (err?.status === 429 && attempt < MAX_429_RETRIES) {
           const retryAfter = Number(err?.headers?.['retry-after']);
           const waitMs = Number.isFinite(retryAfter) && retryAfter > 0
@@ -147,12 +174,63 @@ export class AnthropicService {
           continue;
         }
         this.logger.error('Anthropic API xatosi:', err?.message ?? err);
-        return []; // fallback
+        return null;
       }
     }
   }
 
   // ─────────────────────────── private helpers ───────────────────────────
+
+  private buildColumnPrompt(header: string[], samples: string[][]): string {
+    const cols = header.map((h, i) => `  ${i}: "${h}"`).join('\n');
+    const rows = samples
+      .slice(0, 3)
+      .map((r) => '  [' + r.map((c) => `"${c}"`).join(', ') + ']')
+      .join('\n');
+
+    return `You are analyzing a pharmacy price-list spreadsheet whose column headers may be in ANY language (Uzbek, Russian, German, Croatian, Spanish, Turkish, etc).
+
+Identify which column index corresponds to each field:
+- "name": the medication/product name
+- "sellPrice": the selling price (the main price column)
+- "purchasePrice": the purchase/cost price, if present
+- "manufacturer": the manufacturer or supplier company
+- "country": the country of origin
+
+COLUMNS (index: header):
+${cols}
+
+SAMPLE DATA ROWS:
+${rows}
+
+Use both the header meaning AND the sample data to decide. If a field is not present, use -1.
+Respond ONLY with a valid JSON object, no explanation:
+{"name": <idx>, "sellPrice": <idx>, "purchasePrice": <idx or -1>, "manufacturer": <idx or -1>, "country": <idx or -1>}`;
+  }
+
+  private parseColumnResponse(text: string, colCount: number): AiColumnResult | null {
+    try {
+      const m = text.match(/\{[\s\S]*\}/);
+      if (!m) return null;
+      const o = JSON.parse(m[0]);
+      const clamp = (v: any): number => {
+        const n = Number(v);
+        return Number.isInteger(n) && n >= 0 && n < colCount ? n : -1;
+      };
+      const res: AiColumnResult = {
+        name: clamp(o.name),
+        sellPrice: clamp(o.sellPrice),
+        purchasePrice: clamp(o.purchasePrice),
+        manufacturer: clamp(o.manufacturer),
+        country: clamp(o.country),
+      };
+      // Nom va narx bo'lmasa — foydasiz.
+      if (res.name === -1 || res.sellPrice === -1) return null;
+      return res;
+    } catch {
+      return null;
+    }
+  }
 
   private buildPrompt(requests: AiMatchRequest[]): string {
     const items = requests.map((r) => {

@@ -16,8 +16,8 @@ const fakeConfig: any = { get: (k: string) => process.env[k] };
 
 async function main() {
   const dir = path.join(process.cwd(), 'sample');
-  const pricelist = new PricelistService();
   const ai = new AnthropicService(fakeConfig);
+  const pricelist = new PricelistService(ai);
   const currency = new CurrencyService(fakeConfig);
   const matching = new MatchingService(fakeConfig, ai, currency);
   const report = new ReportService();
