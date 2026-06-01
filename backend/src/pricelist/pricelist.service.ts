@@ -107,6 +107,12 @@ export class PricelistService {
 
     const { headerRow, columns } = this.detectColumns(rows);
 
+    // 0) Sarlavha bo'yicha topilgan narx ustuni MA'LUMOTDA bo'sh bo'lishi mumkin
+    //    (masalan "Цена со скидкой" to'ldirilmagan, asl narx "uzs - narx"da).
+    //    Bo'sh narx ustunini bekor qilamiz — quyidagi infer haqiqiy raqamli
+    //    ustunni tanlaydi. AKS HOLDA hamma narx null bo'lib, hammasi NOT_FOUND.
+    this.clearEmptyPriceColumns(rows, headerRow, columns);
+
     // 1) Lug'at bilan topilmagan nom/narxni ustun TARKIBIGA qarab taxmin qilamiz.
     this.inferMissingColumns(rows, headerRow, columns);
 
@@ -173,7 +179,9 @@ export class PricelistService {
     // 1) Belgi/so'z bo'yicha (eng aniq).
     if (/€|\beur\b|евро|euro/.test(hay)) return 'EUR';
     if (/£|\bgbp\b|funt|фунт/.test(hay)) return 'GBP';
-    if (/₽|\brub\b|\bруб|рубл/.test(hay)) return 'RUB';
+    // DIQQAT: JS regexда `\b` faqat ASCII uchun ishlaydi — kirill so'zlarda
+    // `\bруб` MOS KELMAYDI. Shuning uchun kirill qismlarni `\b`siz yozamiz.
+    if (/₽|\brub\b|руб/.test(hay)) return 'RUB';
     if (/\bhrk\b|\bkn\b|kuna/.test(hay)) return 'HRK'; // xorvat kunasi
     if (/\bchf\b|franak|франк/.test(hay)) return 'CHF';
     if (/\bcny\b|\brmb\b|yuan|юань/.test(hay)) return 'CNY';
@@ -269,6 +277,42 @@ export class PricelistService {
     fill('country', ai.country);
 
     this.logger.log(`«${fileName}»: ustunlar AI bilan aniqlandi (har qanday til uchun).`);
+  }
+
+  /**
+   * Sarlavha bo'yicha topilgan narx ustuni ma'lumotda deyarli BO'SH bo'lsa
+   * (ko'p dorixona faylida "Цена со скидкой" / "Акция" kabi to'ldirilmagan
+   * ustunlar sarlavhasida "цена/price" bo'ladi), uni -1 ga qaytaramiz. Keyin
+   * inferMissingColumns haqiqiy raqamli narx ustunini (masalan "uzs - narx")
+   * tanlaydi. Bo'lmasa — hamma narx null, hamma mahsulot NOT_FOUND chiqadi.
+   */
+  private clearEmptyPriceColumns(rows: Cell[][], headerRow: number, columns: ColumnMap): void {
+    const start = headerRow + 1;
+    const end = Math.min(start + 60, rows.length);
+
+    // Nomi bor qatorlar ichida shu ustunда qanchasи raqamli — nisbat.
+    const numericRatio = (col: number): number => {
+      let named = 0;
+      let withNum = 0;
+      for (let r = start; r < end; r++) {
+        const row = rows[r];
+        if (!row) continue;
+        if (columns.name !== -1 && !this.cellString(row[columns.name])) continue;
+        named++;
+        if (this.cellNumber(row[col]) != null) withNum++;
+      }
+      return named === 0 ? 1 : withNum / named;
+    };
+
+    if (columns.sellPrice !== -1 && numericRatio(columns.sellPrice) < 0.2) {
+      this.logger.warn(
+        `Narx ustuni (${columns.sellPrice}) ma'lumotda bo'sh — tarkibga qarab qayta tanlanadi.`,
+      );
+      columns.sellPrice = -1;
+    }
+    if (columns.purchasePrice !== -1 && numericRatio(columns.purchasePrice) < 0.2) {
+      columns.purchasePrice = -1;
+    }
   }
 
   /**
