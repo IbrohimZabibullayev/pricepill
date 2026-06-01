@@ -91,16 +91,25 @@ export class AnalysisController {
    */
   private async downloadWithRetry(
     file: { fileName: string; url: string },
-    attempts = 4,
+    attempts = 5,
   ): Promise<Buffer> {
     let lastErr: any;
     for (let i = 0; i < attempts; i++) {
+      // Har urinishda YANGI ulanish: «bad record mac» SSL xatosi ko'pincha
+      // buzilgan keep-alive ulanishni qayta ishlatishdan keladi. Connection:close
+      // bilan har safar toza TLS ulanish ochiladi va abort bilan osilib qolmaydi.
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 30_000);
       try {
-        const res = await fetch(file.url);
+        const res = await fetch(file.url, {
+          headers: { connection: 'close' },
+          signal: controller.signal,
+          cache: 'no-store',
+        });
         if (!res.ok) {
           // 5xx — vaqtinchalik bo'lishi mumkin, qayta uramiz; 4xx — yo'q.
           if (res.status >= 500 && i < attempts - 1) {
-            await this.sleep(500 * (i + 1));
+            await this.sleep(600 * (i + 1));
             continue;
           }
           throw new Error(`Telegram ${res.status} qaytardi`);
@@ -108,15 +117,18 @@ export class AnalysisController {
         return Buffer.from(await res.arrayBuffer());
       } catch (err: any) {
         lastErr = err;
-        // Oxirgi urinish bo'lmasa — biroz kutib qayta uramiz.
+        // Oxirgi urinish bo'lmasa — biroz kutib qayta uramiz (SSL/ulanish xatolari
+        // vaqtinchalik; yangi ulanish bilan keyingi urinish odatda o'tadi).
         if (i < attempts - 1) {
-          await this.sleep(500 * (i + 1));
+          await this.sleep(600 * (i + 1));
           continue;
         }
+      } finally {
+        clearTimeout(timer);
       }
     }
     throw new PriceListParseError(
-      `«${file.fileName}» faylini yuklab bo‘lmadi (tarmoq xatosi): ${lastErr?.message ?? lastErr}. ` +
+      `«${file.fileName}» faylini yuklab bo‘lmadi (tarmoq/SSL xatosi bir necha marta takrorlandi). ` +
         `Iltimos, bir oz kutib qayta urinib ko‘ring.`,
     );
   }

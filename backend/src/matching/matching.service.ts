@@ -36,16 +36,22 @@ interface OwnWithCandidates {
   candidates: Candidate[];
 }
 
-const CANDIDATE_TOP = 5;          // Har raqobatchi fayldan olinadigan eng yaxshi n ta
+const CANDIDATE_TOP = 3;          // Har raqobatchi fayldan olinadigan eng yaxshi n ta (kamroq = arzonroq)
 const CANDIDATE_THRESHOLD = 0.30; // Nomzodlikka kiradigan minimal lokal skor
 const LOCAL_THRESHOLD = 0.60;     // AI yo'q bo'lsa — eski chegara
 const BATCH_SIZE = 25;            // Bir AI so'rovidagi mahsulotlar soni
 const AI_CONCURRENCY = 4;         // Parallel AI so'rovlari (token byudjet asosiy cheklov)
-// Lokal skor shu chegaradan yuqori VA ikkinchi nomzoddan sezilarli ustun bo'lsa —
-// AIsiz qabul qilamiz. Bu rus-rus aynan bir xil nomlarni AIga yubormay, tokenni
-// tejaydi (eng past tier'da tezlikning asosiy omili).
-const AUTO_ACCEPT_SCORE = 0.92;
-const AUTO_ACCEPT_MARGIN = 0.12;  // 1-chi va 2-chi nomzod orasidagi minimal farq
+
+// ── Kredit/token tejash chegaralari ──
+// AI faqat CHINAKAM SHUBHALI hollarda ishlatiladi. Aniq mosliklar va aniq
+// mos kelmaydiganlar lokal hal qilinadi — Anthropic krediti tejaladi.
+
+// Lokal skor shu darajadan yuqori VA 2-chidan sezilarli ustun bo'lsa — AIsiz qabul.
+const AUTO_ACCEPT_SCORE = 0.85;
+const AUTO_ACCEPT_MARGIN = 0.08;
+// Eng yaxshi nomzod ham shu darajadan past bo'lsa — bu aniq «topilmadi»,
+// AIga yuborishdan ma'no yo'q.
+const AUTO_REJECT_SCORE = 0.45;
 
 @Injectable()
 export class MatchingService {
@@ -91,9 +97,12 @@ export class MatchingService {
       candidates: this.gatherCandidates(o, comps),
     }));
 
-    // 2. AIsiz hal bo'ladiganlarni ajratamiz: yagona kuchli nomzod (yuqori skor +
-    //    ikkinchidan sezilarli ustun) bo'lsa — to'g'ridan-to'g'ri qabul. Qolganlari AIga.
+    // 2. Kreditni tejash uchun AIsiz hal bo'ladiganlarni ajratamiz:
+    //    • auto-qabul — yagona kuchli nomzod (yuqori skor + 2-chidan ustun)
+    //    • auto-rad   — eng yaxshi nomzod ham juda zaif (aniq topilmadi)
+    //    Faqat oraliq (shubhali) holatlar AIga boradi.
     const autoAccepted = new Map<number, Candidate>();
+    let autoRejected = 0;
     const needsAi: OwnWithCandidates[] = [];
     for (const o of ownsWithCandidates) {
       if (o.candidates.length === 0) continue;
@@ -102,6 +111,8 @@ export class MatchingService {
       const second = sorted[1]?.localScore ?? 0;
       if (top.localScore >= AUTO_ACCEPT_SCORE && top.localScore - second >= AUTO_ACCEPT_MARGIN) {
         autoAccepted.set(o.ownIndex, top);
+      } else if (top.localScore < AUTO_REJECT_SCORE) {
+        autoRejected++; // nomzodlar bor, lekin hammasi juda zaif — topilmadi
       } else {
         needsAi.push(o);
       }
@@ -111,9 +122,10 @@ export class MatchingService {
     for (let i = 0; i < needsAi.length; i += BATCH_SIZE) {
       batches.push(needsAi.slice(i, i + BATCH_SIZE));
     }
-    if (autoAccepted.size > 0) {
-      this.logger.log(`Auto-qabul (AIsiz): ${autoAccepted.size}, AIga yuboriladi: ${needsAi.length}.`);
-    }
+    this.logger.log(
+      `Lokal hal: ${autoAccepted.size} qabul + ${autoRejected} rad. ` +
+        `AIga (shubhali): ${needsAi.length} ta.`,
+    );
 
     // 3. Batchlarni PARALLEL yuboramiz (eski kod ketma-ket yuborardi — asosiy
     //    sekinlik shu edi). Concurrency cheklab, rate-limitга urilmaymiz.
