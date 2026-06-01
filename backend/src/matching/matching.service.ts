@@ -40,7 +40,12 @@ const CANDIDATE_TOP = 5;          // Har raqobatchi fayldan olinadigan eng yaxsh
 const CANDIDATE_THRESHOLD = 0.30; // Nomzodlikka kiradigan minimal lokal skor
 const LOCAL_THRESHOLD = 0.60;     // AI yo'q bo'lsa — eski chegara
 const BATCH_SIZE = 25;            // Bir AI so'rovidagi mahsulotlar soni
-const AI_CONCURRENCY = 8;         // Bir vaqtda parallel yuboriladigan AI so'rovlari
+const AI_CONCURRENCY = 4;         // Parallel AI so'rovlari (token byudjet asosiy cheklov)
+// Lokal skor shu chegaradan yuqori VA ikkinchi nomzoddan sezilarli ustun bo'lsa —
+// AIsiz qabul qilamiz. Bu rus-rus aynan bir xil nomlarni AIga yubormay, tokenni
+// tejaydi (eng past tier'da tezlikning asosiy omili).
+const AUTO_ACCEPT_SCORE = 0.92;
+const AUTO_ACCEPT_MARGIN = 0.12;  // 1-chi va 2-chi nomzod orasidagi minimal farq
 
 @Injectable()
 export class MatchingService {
@@ -86,11 +91,28 @@ export class MatchingService {
       candidates: this.gatherCandidates(o, comps),
     }));
 
-    // 2. Nomzodlari bo'lganlarnigina AIga yuboramiz, batchlarga bo'lamiz.
-    const needsAi = ownsWithCandidates.filter((o) => o.candidates.length > 0);
+    // 2. AIsiz hal bo'ladiganlarni ajratamiz: yagona kuchli nomzod (yuqori skor +
+    //    ikkinchidan sezilarli ustun) bo'lsa — to'g'ridan-to'g'ri qabul. Qolganlari AIga.
+    const autoAccepted = new Map<number, Candidate>();
+    const needsAi: OwnWithCandidates[] = [];
+    for (const o of ownsWithCandidates) {
+      if (o.candidates.length === 0) continue;
+      const sorted = [...o.candidates].sort((a, b) => b.localScore - a.localScore);
+      const top = sorted[0];
+      const second = sorted[1]?.localScore ?? 0;
+      if (top.localScore >= AUTO_ACCEPT_SCORE && top.localScore - second >= AUTO_ACCEPT_MARGIN) {
+        autoAccepted.set(o.ownIndex, top);
+      } else {
+        needsAi.push(o);
+      }
+    }
+
     const batches: OwnWithCandidates[][] = [];
     for (let i = 0; i < needsAi.length; i += BATCH_SIZE) {
       batches.push(needsAi.slice(i, i + BATCH_SIZE));
+    }
+    if (autoAccepted.size > 0) {
+      this.logger.log(`Auto-qabul (AIsiz): ${autoAccepted.size}, AIga yuboriladi: ${needsAi.length}.`);
     }
 
     // 3. Batchlarni PARALLEL yuboramiz (eski kod ketma-ket yuborardi — asosiy
@@ -122,10 +144,15 @@ export class MatchingService {
 
     // 4. Natijalarni yig'amiz.
     return ownsWithCandidates.map(({ ownIndex, own, candidates }) => {
-      const aiResult = aiResultMap.get(ownIndex);
       let bestHit: MatchHit | null = null;
 
-      if (aiResult && aiResult.candidateIdx >= 0 && aiResult.candidateIdx < candidates.length) {
+      const auto = autoAccepted.get(ownIndex);
+      const aiResult = aiResultMap.get(ownIndex);
+
+      if (auto) {
+        // Lokal yo'l bilan ishonchli tanlangan.
+        bestHit = { competitorFile: auto.competitorFile, product: auto.product, score: auto.localScore };
+      } else if (aiResult && aiResult.candidateIdx >= 0 && aiResult.candidateIdx < candidates.length) {
         const chosen = candidates[aiResult.candidateIdx];
         bestHit = {
           competitorFile: chosen.competitorFile,
