@@ -29,18 +29,24 @@ export interface AiMatchRequest {
   }>;
 }
 
+// Tez va arzon — nom moslashtirish uchun yetarli. ANTHROPIC_MODEL bilan
+// almashtirsa bo'ladi. MUHIM: eski "claude-3-5-haiku-*" endi mavjud emas (404).
+const DEFAULT_MODEL = 'claude-haiku-4-5';
+
 @Injectable()
 export class AnthropicService {
   private readonly logger = new Logger(AnthropicService.name);
   private readonly client: Anthropic | null;
   private readonly enabled: boolean;
+  private readonly model: string;
 
   constructor(config: ConfigService) {
     const apiKey = config.get<string>('ANTHROPIC_API_KEY');
+    this.model = config.get<string>('ANTHROPIC_MODEL') || DEFAULT_MODEL;
     if (apiKey) {
       this.client = new Anthropic({ apiKey });
       this.enabled = true;
-      this.logger.log('🤖 Anthropic AI matching yoqildi.');
+      this.logger.log(`🤖 Anthropic AI matching yoqildi (model: ${this.model}).`);
     } else {
       this.client = null;
       this.enabled = false;
@@ -63,7 +69,7 @@ export class AnthropicService {
 
     try {
       const message = await this.client.messages.create({
-        model: 'claude-3-5-haiku-20241022',
+        model: this.model,
         max_tokens: 1024,
         messages: [{ role: 'user', content: prompt }],
       });

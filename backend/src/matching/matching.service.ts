@@ -40,7 +40,7 @@ const CANDIDATE_TOP = 5;          // Har raqobatchi fayldan olinadigan eng yaxsh
 const CANDIDATE_THRESHOLD = 0.30; // Nomzodlikka kiradigan minimal lokal skor
 const LOCAL_THRESHOLD = 0.60;     // AI yo'q bo'lsa — eski chegara
 const BATCH_SIZE = 25;            // Bir AI so'rovidagi mahsulotlar soni
-const AI_CONCURRENCY = 6;         // Bir vaqtda parallel yuboriladigan AI so'rovlari
+const AI_CONCURRENCY = 8;         // Bir vaqtda parallel yuboriladigan AI so'rovlari
 
 @Injectable()
 export class MatchingService {
