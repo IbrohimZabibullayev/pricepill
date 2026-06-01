@@ -1,5 +1,8 @@
-/** Qo'llab-quvvatlanadigan valyutalar (CBU kodlari) */
-export type Currency = 'UZS' | 'USD' | 'EUR' | 'RUB';
+/**
+ * Valyuta — ISO/CBU kodi (UZS, USD, EUR, RUB, HRK, GBP, CHF, CNY...).
+ * Qat'iy ro'yxat emas: CBU bergan istalgan kod ishlatilishi mumkin.
+ */
+export type Currency = string;
 
 export interface Product {
   name: string;

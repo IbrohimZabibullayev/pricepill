@@ -2,8 +2,8 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Currency } from '../pricelist/pricelist.types';
 
-/** 1 birlik valyuta necha UZS turishi (UZS=1). */
-export type RateMap = Record<Currency, number>;
+/** 1 birlik valyuta necha UZS turishi (UZS=1). Kalit — valyuta kodi. */
+export type RateMap = Record<string, number>;
 
 @Injectable()
 export class CurrencyService {
@@ -12,7 +12,7 @@ export class CurrencyService {
   private lastFetched = 0;
   private readonly cacheDurationMs = 12 * 60 * 60 * 1000; // 12 soat
 
-  // CBU ishlamasa — zaxira kurslar (taxminiy, env bilan o'zgartirsa bo'ladi).
+  // CBU ishlamasa — zaxira kurslar (taxminiy). UZS doim 1.
   private readonly fallback: RateMap;
 
   constructor(private readonly config: ConfigService) {
@@ -21,10 +21,14 @@ export class CurrencyService {
       USD: Number(config.get('USD_RATE')) || 12600,
       EUR: Number(config.get('EUR_RATE')) || 13700,
       RUB: Number(config.get('RUB_RATE')) || 140,
+      HRK: 1850, // taxminiy
     };
   }
 
-  /** Har valyuta uchun «1 birlik = N UZS» xaritasini qaytaradi. */
+  /**
+   * Har valyuta uchun «1 birlik = N UZS» xaritasini qaytaradi.
+   * CBU'dagi BARCHA valyutalarni yuklaydi (HRK, GBP, CHF, CNY...) — dinamik.
+   */
   async getRates(): Promise<RateMap> {
     const now = Date.now();
     if (this.cached && now - this.lastFetched < this.cacheDurationMs) {
@@ -36,23 +40,25 @@ export class CurrencyService {
       if (!res.ok) throw new Error(`CBU API status ${res.status}`);
       const data = (await res.json()) as any[];
 
-      const pick = (code: string): number | null => {
-        const row = data.find((d) => d?.Ccy === code);
-        const rate = row ? parseFloat(row.Rate) : NaN;
-        return Number.isFinite(rate) && rate > 0 ? rate : null;
-      };
-
-      const rates: RateMap = {
-        UZS: 1,
-        USD: pick('USD') ?? this.fallback.USD,
-        EUR: pick('EUR') ?? this.fallback.EUR,
-        RUB: pick('RUB') ?? this.fallback.RUB,
-      };
+      const rates: RateMap = { UZS: 1 };
+      for (const row of data) {
+        const code = String(row?.Ccy ?? '').toUpperCase();
+        const rate = parseFloat(row?.Rate);
+        const nominal = parseFloat(row?.Nominal) || 1; // ba'zi valyutalar 10/100 birlik uchun
+        if (code && Number.isFinite(rate) && rate > 0) {
+          rates[code] = rate / nominal;
+        }
+      }
+      // Zaxiradan yetishmaganlarini to'ldiramiz.
+      for (const [k, v] of Object.entries(this.fallback)) {
+        if (rates[k] == null) rates[k] = v;
+      }
 
       this.cached = rates;
       this.lastFetched = now;
       this.logger.log(
-        `CBU kurslari yangilandi: USD=${rates.USD}, EUR=${rates.EUR}, RUB=${rates.RUB} UZS.`,
+        `CBU kurslari yangilandi: ${Object.keys(rates).length} valyuta ` +
+          `(USD=${rates.USD}, EUR=${rates.EUR}, HRK=${rates.HRK ?? '—'}).`,
       );
       return rates;
     } catch (err: any) {
@@ -66,10 +72,20 @@ export class CurrencyService {
     return (await this.getRates()).USD;
   }
 
-  /** `amount` (from valyutada) ni `to` valyutaga aylantiradi. */
-  convert(amount: number, from: Currency, to: Currency, rates: RateMap): number {
+  /**
+   * `amount` (from valyutada) ni `to` valyutaga aylantiradi.
+   * Kurs noma'lum bo'lsa — null (taqqoslab bo'lmaydi, xato qiymat bermaymiz).
+   */
+  convert(amount: number, from: Currency, to: Currency, rates: RateMap): number | null {
     if (from === to) return amount;
-    const inUzs = amount * rates[from]; // avval UZSga
-    return inUzs / rates[to]; // keyin kerakli valyutaga
+    const fr = rates[from];
+    const tr = rates[to];
+    if (fr == null || tr == null) return null; // noma'lum valyuta
+    return (amount * fr) / tr;
+  }
+
+  /** Valyuta kursi ma'lummi? */
+  isKnown(ccy: Currency, rates: RateMap): boolean {
+    return rates[ccy] != null;
   }
 }

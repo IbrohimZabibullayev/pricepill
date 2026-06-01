@@ -9,19 +9,28 @@ const borderStyle: Partial<ExcelJS.Borders> = {
   right: { style: 'thin', color: { argb: 'FFE0E0E0' } },
 };
 
-// Valyuta belgilari va son formatlari.
-const CCY_SYMBOL: Record<Currency, string> = { UZS: "so'm", USD: '$', EUR: '€', RUB: '₽' };
+// Tanish valyutalar uchun belgi. Boshqalari uchun kod ishlatiladi (HRK, GBP...).
+const CCY_SYMBOL: Record<string, string> = { USD: '$', EUR: '€', RUB: '₽', GBP: '£' };
+// Maydaroq birlik (kasrli) valyutalar — 2 kasr; qolganlari (UZS, RUB...) butun.
+const DECIMAL_CCY = new Set(['USD', 'EUR', 'GBP', 'CHF', 'HRK', 'TRY', 'CNY']);
 
-/** Sonni valyuta bilan matn qilib qaytaradi: "12 000 so'm", "$4.20". */
+/** Valyutaning ko'rsatiladigan belgisi (yoki kodi: "so'm", "HRK"). */
+function ccyLabel(ccy: Currency): string {
+  if (ccy === 'UZS') return "so'm";
+  return CCY_SYMBOL[ccy] ?? ccy; // belgi bo'lsa belgi, aks holda kod (HRK, KZT...)
+}
+
+/** Sonni valyuta bilan matn qilib qaytaradi: "12 000 so'm", "$4.20", "7.20 HRK". */
 function money(amount: number | null | undefined, ccy: Currency): string {
   if (amount == null) return '—';
-  // UZS/RUB butun, USD/EUR ikki kasr.
-  const decimals = ccy === 'USD' || ccy === 'EUR' ? 2 : 0;
+  const decimals = DECIMAL_CCY.has(ccy) ? 2 : 0;
   const num = amount.toLocaleString('ru-RU', {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals,
   });
-  return ccy === 'USD' || ccy === 'EUR' ? `${CCY_SYMBOL[ccy]}${num}` : `${num} ${CCY_SYMBOL[ccy]}`;
+  const label = ccyLabel(ccy);
+  // $/€/£ — son oldida; so'm/HRK/kod — sondan keyin.
+  return label.length === 1 ? `${label}${num}` : `${num} ${label}`;
 }
 
 @Injectable()
@@ -152,7 +161,7 @@ export class ReportService {
     };
 
     addSummaryRow('Mening price-listim', ownFileName);
-    addSummaryRow('Mening valyutam', rows[0] ? CCY_SYMBOL[rows[0].ownCurrency] : '—');
+    addSummaryRow('Mening valyutam', rows[0] ? ccyLabel(rows[0].ownCurrency) : '—');
     addSummaryRow('Tahlil sanasi', new Date().toLocaleString('uz-UZ'));
     addSummaryRow('Jami mahsulotlar soni', rows.length, '#,##0');
     addSummaryRow('Raqobatchida topilganlari', found.length, '#,##0');

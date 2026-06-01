@@ -260,15 +260,35 @@ export class MatchingService {
     }
 
     // Narxli nomzodlar orasidan — mening valyutamga aylantirilgan eng arzonini tanlaymiz.
+    // Valyutasi noma'lum (kursi yo'q) bo'lsa — taqqoslab bo'lmaydi (null).
     const priced = hits.filter((h) => h.product.sellPrice != null);
     if (priced.length === 0) {
       return { ...base, bestHit: hits[0], verdict: 'NOT_FOUND' };
     }
-    const inOwn = (h: MatchHit) =>
+    const inOwn = (h: MatchHit): number | null =>
       this.currency.convert(h.product.sellPrice as number, h.competitorCurrency, ctx.ownCurrency, ctx.rates);
-    const bestHit = priced.reduce((a, b) => (inOwn(a) <= inOwn(b) ? a : b));
+
+    // Eng arzonini tanlaymiz (konvertatsiya qilinmaganlar — eng oxirida).
+    const bestHit = priced.reduce((a, b) => {
+      const av = inOwn(a);
+      const bv = inOwn(b);
+      if (av == null) return b;
+      if (bv == null) return a;
+      return av <= bv ? a : b;
+    });
 
     const compSellInOwnCcy = inOwn(bestHit);
+    if (compSellInOwnCcy == null) {
+      // Raqobatchi valyutasi noma'lum — moslik bor, lekin narxni taqqoslab
+      // bo'lmaydi. bestHit'ni ko'rsatamiz, farqni hisoblamaymiz.
+      return {
+        ...base,
+        bestHit,
+        compCurrency: bestHit.competitorCurrency,
+        verdict: 'EQUAL',
+      };
+    }
+
     const diff = own.sellPrice - compSellInOwnCcy;
     const diffPercent = compSellInOwnCcy !== 0 ? (diff / compSellInOwnCcy) * 100 : null;
 

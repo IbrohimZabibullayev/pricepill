@@ -12,27 +12,30 @@ const COLUMN_ALIASES: Record<keyof ColumnMap, string[]> = {
     'name', 'product', 'item', 'drug', 'medicine', 'description',
     'наименование', 'товар', 'препарат', 'название', 'номенклатура',
     'produit', 'designation', 'médicament', 'medicament', 'libellé', 'libelle',
-    // nemis / ispan / italyan / turk
+    // nemis / ispan / italyan / turk / xorvat
     'medikamentenname', 'bezeichnung', 'artikel', 'produkt', 'name des medikaments',
     'medicamento', 'producto', 'nombre', 'farmaco', 'prodotto', 'ilaç', 'ilac', 'urun',
+    'naziv', 'naziv lijeka', 'lijek', 'lek',
   ],
   manufacturer: [
     'ishlab chiqaruvchi', 'i ch', 'ishlabchiqaruvchi', 'yetkazib beruvchi', 'taminotchi', 'firma',
     'manufacturer', 'brand', 'supplier', 'vendor', 'maker',
     'производитель', 'завод', 'поставщик', 'фирма', 'бренд',
     'fabricant', 'fournisseur', 'marque', 'laboratoire',
-    // nemis / ispan / italyan / turk
+    // nemis / ispan / italyan / turk / xorvat
     'hersteller', 'lieferant', 'anbieter', 'fabricante', 'proveedor', 'produttore',
     'fornitore', 'üretici', 'uretici', 'tedarikçi', 'tedarikci',
+    'dobavljač', 'dobavljac', 'proizvođač', 'proizvodac', 'isporučitelj',
   ],
   country: [
     'davlat', 'mamlakat', 'keladigan davlat', 'ishlab chiqarilgan davlat', 'mamlakati', 'origin',
     'country', 'country of origin', 'made in', 'origin country',
     'страна', 'страна происхождения', 'происхождение',
     'pays', "pays d'origine", 'origine',
-    // nemis / ispan / italyan / turk
+    // nemis / ispan / italyan / turk / xorvat
     'herkunftsland', 'herkunft', 'land', 'país', 'pais', 'origen', 'paese', 'origine',
     'ülke', 'ulke', 'menşei', 'mensei',
+    'zemlja', 'zemlja podrijetla', 'podrijetlo', 'zemlja porijekla',
   ],
   purchasePrice: [
     'kelish narxi', 'sotib olish narxi', 'kirim narxi', 'tan narxi', 'kelish',
@@ -48,9 +51,10 @@ const COLUMN_ALIASES: Record<keyof ColumnMap, string[]> = {
     'price', 'sale', 'sale price', 'sell price', 'selling price', 'retail',
     'цена', 'продажа', 'цена продажи', 'розница', 'стоимость',
     'prix', 'prix de vente', 'vente', 'tarif',
-    // nemis / ispan / italyan / turk (narx ko'pincha valyuta bilan: "Preis (EUR)")
+    // nemis / ispan / italyan / turk / xorvat (narx ko'pincha valyuta bilan: "Preis (EUR)")
     'preis', 'verkaufspreis', 'vk-preis', 'precio', 'precio de venta', 'prezzo',
     'prezzo vendita', 'fiyat', 'satış fiyatı', 'satis fiyati',
+    'cijena', 'cena', 'cijena (hrk)', 'maloprodajna cijena',
   ],
 };
 
@@ -148,15 +152,32 @@ export class PricelistService {
 
   /**
    * Valyutani matndan aniqlaydi (narx sarlavhasi + namuna kataklar + fayl nomi).
-   * Topilmasa — UZS (o'zbek dorixonalari uchun default).
+   * Belgi, ISO kod yoki so'z bo'yicha. Topilmasa — UZS (default).
    */
   private detectCurrency(text: string, fileName: string): Currency {
     const hay = (text + ' ' + fileName).toLowerCase();
-    // Belgi yoki kod yoki so'z — tartib muhim (eng aniqdan boshlab).
+
+    // 1) Belgi/so'z bo'yicha (eng aniq).
     if (/€|\beur\b|евро|euro/.test(hay)) return 'EUR';
+    if (/£|\bgbp\b|funt|фунт/.test(hay)) return 'GBP';
     if (/₽|\brub\b|\bруб|рубл/.test(hay)) return 'RUB';
+    if (/\bhrk\b|\bkn\b|kuna/.test(hay)) return 'HRK'; // xorvat kunasi
+    if (/\bchf\b|franak|франк/.test(hay)) return 'CHF';
+    if (/\bcny\b|\brmb\b|yuan|юань/.test(hay)) return 'CNY';
+    if (/\btry\b|lira|₺/.test(hay)) return 'TRY';
+    if (/\bkzt\b|tenge|тенге|₸/.test(hay)) return 'KZT';
     if (/\$|\busd\b|доллар|dollar/.test(hay)) return 'USD';
     if (/so['ʼʻ‘’]?m|\buzs\b|сум|сўм|so m/.test(hay)) return 'UZS';
+
+    // 2) Umumiy ISO kod: sarlavhada "(XXX)" yoki alohida 3 harfli kod bo'lsa.
+    const iso = hay.match(/\(([a-z]{3})\)/) || hay.match(/\b([a-z]{3})\b/);
+    if (iso) {
+      const code = iso[1].toUpperCase();
+      // Tasodifiy so'zlarni (the, mg...) chetlab, faqat ehtimoliy valyuta kodlari.
+      if (/^(USD|EUR|RUB|GBP|HRK|CHF|CNY|TRY|KZT|JPY|PLN|AED|INR|KRW)$/.test(code)) {
+        return code;
+      }
+    }
     return 'UZS'; // default
   }
 
