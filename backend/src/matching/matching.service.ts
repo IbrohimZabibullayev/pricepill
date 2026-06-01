@@ -45,8 +45,8 @@ interface CompareCtx {
   rates: RateMap;
 }
 
-const CANDIDATE_TOP = 3;          // Har raqobatchi fayldan olinadigan eng yaxshi n ta (kamroq = arzonroq)
-const CANDIDATE_THRESHOLD = 0.30; // Nomzodlikka kiradigan minimal lokal skor
+const CANDIDATE_TOP = 6;          // Har raqobatchi fayldan olinadigan eng yaxshi n ta (ko'proq = AI ko'proq nomzod ko'radi)
+const CANDIDATE_THRESHOLD = 0.18; // Nomzodlikka kiradigan minimal lokal skor (pastroq = brend/generik mosliklar ham AIga yetadi)
 const LOCAL_THRESHOLD = 0.60;     // AI yo'q bo'lsa — eski chegara
 const BATCH_SIZE = 25;            // Bir AI so'rovidagi mahsulotlar soni
 const AI_CONCURRENCY = 4;         // Parallel AI so'rovlari (token byudjet asosiy cheklov)
@@ -59,8 +59,9 @@ const AI_CONCURRENCY = 4;         // Parallel AI so'rovlari (token byudjet asosi
 const AUTO_ACCEPT_SCORE = 0.85;
 const AUTO_ACCEPT_MARGIN = 0.08;
 // Eng yaxshi nomzod ham shu darajadan past bo'lsa — bu aniq «topilmadi»,
-// AIga yuborishdan ma'no yo'q.
-const AUTO_REJECT_SCORE = 0.45;
+// AIga yuborishdan ma'no yo'q. Pastroq qildik: shubhali (brend≠generik, boshqa
+// til) hollar ham AIga borib, "bor lekin topilmadi" kamayadi.
+const AUTO_REJECT_SCORE = 0.30;
 
 @Injectable()
 export class MatchingService {

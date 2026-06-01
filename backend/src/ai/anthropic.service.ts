@@ -38,9 +38,9 @@ export interface AiMatchRequest {
   }>;
 }
 
-// Tez va arzon — nom moslashtirish uchun yetarli. ANTHROPIC_MODEL bilan
+// Eng kuchli va eng oxirgi model — tahlil sifati uchun. ANTHROPIC_MODEL bilan
 // almashtirsa bo'ladi. MUHIM: eski "claude-3-5-haiku-*" endi mavjud emas (404).
-const DEFAULT_MODEL = 'claude-haiku-4-5';
+const DEFAULT_MODEL = 'claude-opus-4-8';
 
 // Daqiqasiga kiruvchi token byudjeti. Anthropic'ning eng past tier'i 50k/min;
 // shu chegaradan past ushlab tursak — 429 (rate limit) umuman chiqmaydi.
