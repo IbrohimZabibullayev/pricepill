@@ -42,10 +42,10 @@ export interface AiMatchRequest {
 // almashtirsa bo'ladi. MUHIM: eski "claude-3-5-haiku-*" endi mavjud emas (404).
 const DEFAULT_MODEL = 'claude-opus-4-8';
 
-// Daqiqasiga kiruvchi token byudjeti. Anthropic'ning eng past tier'i 50k/min;
-// shu chegaradan past ushlab tursak — 429 (rate limit) umuman chiqmaydi.
-// ANTHROPIC_TPM env bilan tier oshganda kattalashtirish mumkin.
-const DEFAULT_TPM = 45000;
+// Daqiqasiga kiruvchi token byudjeti. Opus tier 1 ≈ 30k ITPM; shu chegaradan
+// past ushlab tursak — 429 (rate limit) chiqmaydi. ANTHROPIC_TPM env bilan
+// tier oshganda kattalashtirish mumkin (Railway "Variables" orqali).
+const DEFAULT_TPM = 30000;
 const MAX_429_RETRIES = 5;
 
 /**
