@@ -10,6 +10,7 @@ import { PricelistService } from '../src/pricelist/pricelist.service';
 import { MatchingService } from '../src/matching/matching.service';
 import { ReportService } from '../src/report/report.service';
 import { AnthropicService } from '../src/ai/anthropic.service';
+import { CurrencyService } from '../src/currency/currency.service';
 
 const fakeConfig: any = { get: (k: string) => process.env[k] };
 
@@ -17,7 +18,8 @@ async function main() {
   const dir = path.join(process.cwd(), 'sample');
   const pricelist = new PricelistService();
   const ai = new AnthropicService(fakeConfig);
-  const matching = new MatchingService(fakeConfig, ai);
+  const currency = new CurrencyService(fakeConfig);
+  const matching = new MatchingService(fakeConfig, ai, currency);
   const report = new ReportService();
 
   // CLI argumentlari berilsa — o'sha fayllar; bo'lmasa sample/ dagilar.
@@ -43,10 +45,11 @@ async function main() {
   console.log('\n=== DASTLABKI NATIJALAR ===');
   for (const r of rows.slice(0, 15)) {
     const verdict = r.verdict.padEnd(10);
-    const diff = r.diffSom == null ? '   —' : (r.diffSom > 0 ? '+' : '') + r.diffSom;
+    const diff = r.diff == null ? '   —' : (r.diff > 0 ? '+' : '') + Math.round(r.diff);
     const pct = r.diffPercent == null ? '' : `(${Math.round(r.diffPercent)}%)`;
+    const ccy = `${r.ownCurrency}${r.compCurrency && r.compCurrency !== r.ownCurrency ? '<-' + r.compCurrency : ''}`;
     const score = r.bestHit ? `[${Math.round(r.bestHit.score * 100)}%]` : '';
-    console.log(`${verdict} ${diff} ${pct} ${score}  ${r.own.name}`);
+    console.log(`${verdict} ${diff} ${pct} ${score} ${ccy}  ${r.own.name}`);
   }
 
   const buf = await report.build(rows, own.fileName);

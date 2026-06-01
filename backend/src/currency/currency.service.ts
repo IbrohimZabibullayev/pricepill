@@ -1,49 +1,75 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Currency } from '../pricelist/pricelist.types';
+
+/** 1 birlik valyuta necha UZS turishi (UZS=1). */
+export type RateMap = Record<Currency, number>;
 
 @Injectable()
 export class CurrencyService {
   private readonly logger = new Logger(CurrencyService.name);
-  private cachedRate: number | null = null;
-  private lastFetched: number = 0;
-  private readonly cacheDurationMs = 12 * 60 * 60 * 1000; // 12 hours
-  private readonly fallbackRate: number;
+  private cached: RateMap | null = null;
+  private lastFetched = 0;
+  private readonly cacheDurationMs = 12 * 60 * 60 * 1000; // 12 soat
+
+  // CBU ishlamasa — zaxira kurslar (taxminiy, env bilan o'zgartirsa bo'ladi).
+  private readonly fallback: RateMap;
 
   constructor(private readonly config: ConfigService) {
-    this.fallbackRate = Number(config.get('USD_RATE') ?? 12600);
+    this.fallback = {
+      UZS: 1,
+      USD: Number(config.get('USD_RATE')) || 12600,
+      EUR: Number(config.get('EUR_RATE')) || 13700,
+      RUB: Number(config.get('RUB_RATE')) || 140,
+    };
   }
 
-  async getUsdRate(): Promise<number> {
+  /** Har valyuta uchun «1 birlik = N UZS» xaritasini qaytaradi. */
+  async getRates(): Promise<RateMap> {
     const now = Date.now();
-    if (this.cachedRate && now - this.lastFetched < this.cacheDurationMs) {
-      return this.cachedRate;
+    if (this.cached && now - this.lastFetched < this.cacheDurationMs) {
+      return this.cached;
     }
 
     try {
-      this.logger.log('Fetching USD rate from CBU API...');
-      const res = await fetch('https://cbu.uz/uz/arkhiv-kursov-valyut/json/USD/');
-      if (!res.ok) {
-        throw new Error(`CBU API returned status ${res.status}`);
-      }
+      const res = await fetch('https://cbu.uz/uz/arkhiv-kursov-valyut/json/');
+      if (!res.ok) throw new Error(`CBU API status ${res.status}`);
       const data = (await res.json()) as any[];
-      if (Array.isArray(data) && data.length > 0 && data[0].Rate) {
-        const rate = parseFloat(data[0].Rate);
-        if (Number.isFinite(rate) && rate > 0) {
-          this.cachedRate = rate;
-          this.lastFetched = now;
-          this.logger.log(`USD rate updated from CBU API: ${rate} UZS`);
-          return rate;
-        }
-      }
-      throw new Error('Invalid response structure from CBU API');
-    } catch (err: any) {
-      this.logger.warn(
-        `Failed to fetch USD rate from CBU: ${err.message}. Using fallback: ${this.fallbackRate}`,
+
+      const pick = (code: string): number | null => {
+        const row = data.find((d) => d?.Ccy === code);
+        const rate = row ? parseFloat(row.Rate) : NaN;
+        return Number.isFinite(rate) && rate > 0 ? rate : null;
+      };
+
+      const rates: RateMap = {
+        UZS: 1,
+        USD: pick('USD') ?? this.fallback.USD,
+        EUR: pick('EUR') ?? this.fallback.EUR,
+        RUB: pick('RUB') ?? this.fallback.RUB,
+      };
+
+      this.cached = rates;
+      this.lastFetched = now;
+      this.logger.log(
+        `CBU kurslari yangilandi: USD=${rates.USD}, EUR=${rates.EUR}, RUB=${rates.RUB} UZS.`,
       );
-      if (this.cachedRate) {
-        return this.cachedRate;
-      }
-      return this.fallbackRate;
+      return rates;
+    } catch (err: any) {
+      this.logger.warn(`CBU kursini olishda xato: ${err.message}. Zaxira kurslar ishlatiladi.`);
+      return this.cached ?? this.fallback;
     }
+  }
+
+  /** Eski API (compat) — faqat USD kursi. */
+  async getUsdRate(): Promise<number> {
+    return (await this.getRates()).USD;
+  }
+
+  /** `amount` (from valyutada) ni `to` valyutaga aylantiradi. */
+  convert(amount: number, from: Currency, to: Currency, rates: RateMap): number {
+    if (from === to) return amount;
+    const inUzs = amount * rates[from]; // avval UZSga
+    return inUzs / rates[to]; // keyin kerakli valyutaga
   }
 }

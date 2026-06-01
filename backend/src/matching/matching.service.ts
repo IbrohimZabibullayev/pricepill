@@ -1,9 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { distance } from 'fastest-levenshtein';
-import { ComparisonRow, MatchHit, PriceList, Product } from '../pricelist/pricelist.types';
+import { Currency, ComparisonRow, MatchHit, PriceList, Product } from '../pricelist/pricelist.types';
 import { transliterate } from './translit';
 import { AnthropicService, AiMatchRequest } from '../ai/anthropic.service';
+import { CurrencyService, RateMap } from '../currency/currency.service';
 
 /**
  * Oldindan normallashtirilgan mahsulot. Nom/ishlab chiqaruvchini va token
@@ -19,12 +20,14 @@ interface Normed {
 
 interface CompFile {
   fileName: string;
+  currency: Currency;
   items: Normed[];
 }
 
 /** Raqobatchi mahsulot + uning lokal skori */
 interface Candidate {
   competitorFile: string;
+  competitorCurrency: Currency;
   product: Product;
   localScore: number;
 }
@@ -34,6 +37,12 @@ interface OwnWithCandidates {
   ownIndex: number;
   own: Product;
   candidates: Candidate[];
+}
+
+/** Taqqoslash konteksti — mening valyutam va kurslar */
+interface CompareCtx {
+  ownCurrency: Currency;
+  rates: RateMap;
 }
 
 const CANDIDATE_TOP = 3;          // Har raqobatchi fayldan olinadigan eng yaxshi n ta (kamroq = arzonroq)
@@ -61,6 +70,7 @@ export class MatchingService {
   constructor(
     config: ConfigService,
     private readonly ai: AnthropicService,
+    private readonly currency: CurrencyService,
   ) {
     this.threshold = Number(config.get('MATCH_THRESHOLD') ?? LOCAL_THRESHOLD);
   }
@@ -68,28 +78,31 @@ export class MatchingService {
   // O'z price-listni bir nechta raqobatchi listga taqqoslaydi.
   async compare(own: PriceList, competitors: PriceList[]): Promise<ComparisonRow[]> {
     const t0 = Date.now();
+    const rates = await this.currency.getRates();
 
     // Hamma mahsulotni bir marta normallashtiramiz.
     const ownN = own.products.map((p) => this.normed(p));
     const comps: CompFile[] = competitors.map((c) => ({
       fileName: c.fileName,
+      currency: c.currency,
       items: c.products.map((p) => this.normed(p)),
     }));
 
+    const ctx = { ownCurrency: own.currency, rates };
     const rows = this.ai.isEnabled
-      ? await this.compareWithAi(ownN, comps)
-      : ownN.map((o) => this.compareOneLocal(o, comps));
+      ? await this.compareWithAi(ownN, comps, ctx)
+      : ownN.map((o) => this.compareOneLocal(o, comps, ctx));
 
     this.logger.log(
       `Taqqoslash tugadi: ${ownN.length} mahsulot, ${(Date.now() - t0) / 1000}s ` +
-        `(${this.ai.isEnabled ? 'AI hybrid' : 'lokal'}).`,
+        `(${this.ai.isEnabled ? 'AI hybrid' : 'lokal'}, valyuta: ${own.currency}).`,
     );
     return rows;
   }
 
   // ─────────────────────── AI HYBRID PATH ───────────────────────
 
-  private async compareWithAi(ownN: Normed[], comps: CompFile[]): Promise<ComparisonRow[]> {
+  private async compareWithAi(ownN: Normed[], comps: CompFile[], ctx: CompareCtx): Promise<ComparisonRow[]> {
     // 1. Har bir o'z mahsuloti uchun nomzodlarni lokal filtr bilan topamiz.
     const ownsWithCandidates: OwnWithCandidates[] = ownN.map((o, ownIndex) => ({
       ownIndex,
@@ -163,24 +176,27 @@ export class MatchingService {
 
       if (auto) {
         // Lokal yo'l bilan ishonchli tanlangan.
-        bestHit = { competitorFile: auto.competitorFile, product: auto.product, score: auto.localScore };
+        bestHit = this.toHit(auto);
       } else if (aiResult && aiResult.candidateIdx >= 0 && aiResult.candidateIdx < candidates.length) {
         const chosen = candidates[aiResult.candidateIdx];
-        bestHit = {
-          competitorFile: chosen.competitorFile,
-          product: chosen.product,
-          score: aiResult.confidence,
-        };
+        bestHit = this.toHit(chosen, aiResult.confidence);
       } else if (!aiResult && candidates.length > 0) {
         // AI javob bermagan bo'lsa — lokal eng yaxshi nomzoddan foydalanamiz.
         const best = candidates.reduce((a, b) => (a.localScore >= b.localScore ? a : b));
-        if (best.localScore >= this.threshold) {
-          bestHit = { competitorFile: best.competitorFile, product: best.product, score: best.localScore };
-        }
+        if (best.localScore >= this.threshold) bestHit = this.toHit(best);
       }
 
-      return this.buildRow(own, bestHit ? [bestHit] : []);
+      return this.buildRow(own, bestHit ? [bestHit] : [], ctx);
     });
+  }
+
+  private toHit(c: Candidate, score?: number): MatchHit {
+    return {
+      competitorFile: c.competitorFile,
+      competitorCurrency: c.competitorCurrency,
+      product: c.product,
+      score: score ?? c.localScore,
+    };
   }
 
   /** Har bir raqobatchi fayldan o'z mahsulotiga eng yaqin top-N nomzodlar. */
@@ -191,7 +207,12 @@ export class MatchingService {
       for (const cand of comp.items) {
         const localScore = this.scoreN(own, cand);
         if (localScore >= CANDIDATE_THRESHOLD) {
-          perComp.push({ competitorFile: comp.fileName, product: cand.product, localScore });
+          perComp.push({
+            competitorFile: comp.fileName,
+            competitorCurrency: comp.currency,
+            product: cand.product,
+            localScore,
+          });
         }
       }
       perComp.sort((a, b) => b.localScore - a.localScore);
@@ -202,52 +223,68 @@ export class MatchingService {
 
   // ─────────────────────── LOCAL FALLBACK PATH ───────────────────────
 
-  private compareOneLocal(own: Normed, comps: CompFile[]): ComparisonRow {
+  private compareOneLocal(own: Normed, comps: CompFile[], ctx: CompareCtx): ComparisonRow {
     const hits: MatchHit[] = [];
     for (const comp of comps) {
       let best: MatchHit | null = null;
       for (const cand of comp.items) {
         const score = this.scoreN(own, cand);
         if (score >= this.threshold && (!best || score > best.score)) {
-          best = { competitorFile: comp.fileName, product: cand.product, score };
+          best = {
+            competitorFile: comp.fileName,
+            competitorCurrency: comp.currency,
+            product: cand.product,
+            score,
+          };
         }
       }
       if (best) hits.push(best);
     }
-    return this.buildRow(own.product, hits);
+    return this.buildRow(own.product, hits, ctx);
   }
 
   // ─────────────────────── SHARED HELPERS ───────────────────────
 
-  private buildRow(own: Product, hits: MatchHit[]): ComparisonRow {
+  private buildRow(own: Product, hits: MatchHit[], ctx: CompareCtx): ComparisonRow {
+    const base = {
+      own,
+      ownCurrency: ctx.ownCurrency,
+      compCurrency: null,
+      compSellInOwnCcy: null,
+      diff: null,
+      diffPercent: null,
+    };
+
     if (hits.length === 0 || own.sellPrice == null) {
-      return {
-        own,
-        bestHit: hits[0] ?? null,
-        diffSom: null,
-        diffPercent: null,
-        verdict: 'NOT_FOUND',
-      };
+      return { ...base, bestHit: hits[0] ?? null, verdict: 'NOT_FOUND' };
     }
 
-    // Eng arzon raqobatchi narxini tanlaymiz — "men eng arzondan ham qimmatmi?"
+    // Narxli nomzodlar orasidan — mening valyutamga aylantirilgan eng arzonini tanlaymiz.
     const priced = hits.filter((h) => h.product.sellPrice != null);
     if (priced.length === 0) {
-      return { own, bestHit: hits[0], diffSom: null, diffPercent: null, verdict: 'NOT_FOUND' };
+      return { ...base, bestHit: hits[0], verdict: 'NOT_FOUND' };
     }
-    const bestHit = priced.reduce((a, b) =>
-      (a.product.sellPrice as number) <= (b.product.sellPrice as number) ? a : b,
-    );
+    const inOwn = (h: MatchHit) =>
+      this.currency.convert(h.product.sellPrice as number, h.competitorCurrency, ctx.ownCurrency, ctx.rates);
+    const bestHit = priced.reduce((a, b) => (inOwn(a) <= inOwn(b) ? a : b));
 
-    const compPrice = bestHit.product.sellPrice as number;
-    const diffSom = own.sellPrice - compPrice;
-    const diffPercent = compPrice !== 0 ? (diffSom / compPrice) * 100 : null;
+    const compSellInOwnCcy = inOwn(bestHit);
+    const diff = own.sellPrice - compSellInOwnCcy;
+    const diffPercent = compSellInOwnCcy !== 0 ? (diff / compSellInOwnCcy) * 100 : null;
 
     let verdict: ComparisonRow['verdict'] = 'EQUAL';
-    if (diffSom > 0) verdict = 'EXPENSIVE';
-    else if (diffSom < 0) verdict = 'CHEAP';
+    if (diff > 0.0001) verdict = 'EXPENSIVE';
+    else if (diff < -0.0001) verdict = 'CHEAP';
 
-    return { own, bestHit, diffSom, diffPercent, verdict };
+    return {
+      ...base,
+      bestHit,
+      compCurrency: bestHit.competitorCurrency,
+      compSellInOwnCcy,
+      diff,
+      diffPercent,
+      verdict,
+    };
   }
 
   /** Mahsulotni bir marta normallashtirib, token to'plamini tayyorlaydi. */

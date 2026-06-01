@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import * as XLSX from 'xlsx';
-import { PriceList, Product } from './pricelist.types';
+import { Currency, PriceList, Product } from './pricelist.types';
 
 // Ustun sarlavhalarini turli yozuvlardan tanib olish uchun aliaslar.
 // Ko'p tilli: o'zbek (lotin/kirill), rus, ingliz, fransuz, nemis, ispan, italyan,
@@ -134,8 +134,30 @@ export class PricelistService {
       throw new PriceListParseError(`«${fileName}»: birorta ham mahsulot topilmadi.`);
     }
 
-    this.logger.log(`«${fileName}» dan ${products.length} ta mahsulot o‘qildi.`);
-    return { fileName, products };
+    // Valyutani aniqlaymiz: narx sarlavhasi + narx kataklari matni asosida.
+    const headerText = this.cellString(rows[headerRow]?.[columns.sellPrice]);
+    const sampleCells = rows
+      .slice(headerRow + 1, headerRow + 41)
+      .map((r) => this.cellString(r?.[columns.sellPrice]))
+      .join(' ');
+    const currency = this.detectCurrency(headerText + ' ' + sampleCells, fileName);
+
+    this.logger.log(`«${fileName}» dan ${products.length} ta mahsulot o‘qildi (valyuta: ${currency}).`);
+    return { fileName, products, currency };
+  }
+
+  /**
+   * Valyutani matndan aniqlaydi (narx sarlavhasi + namuna kataklar + fayl nomi).
+   * Topilmasa — UZS (o'zbek dorixonalari uchun default).
+   */
+  private detectCurrency(text: string, fileName: string): Currency {
+    const hay = (text + ' ' + fileName).toLowerCase();
+    // Belgi yoki kod yoki so'z — tartib muhim (eng aniqdan boshlab).
+    if (/€|\beur\b|евро|euro/.test(hay)) return 'EUR';
+    if (/₽|\brub\b|\bруб|рубл/.test(hay)) return 'RUB';
+    if (/\$|\busd\b|доллар|dollar/.test(hay)) return 'USD';
+    if (/so['ʼʻ‘’]?m|\buzs\b|сум|сўм|so m/.test(hay)) return 'UZS';
+    return 'UZS'; // default
   }
 
   // Sarlavha qatorini topadi. Dorixona/1C prays-listlari yuqorida ko'p

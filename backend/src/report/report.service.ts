@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import * as ExcelJS from 'exceljs';
-import { ComparisonRow } from '../pricelist/pricelist.types';
+import { ComparisonRow, Currency } from '../pricelist/pricelist.types';
 
 const borderStyle: Partial<ExcelJS.Borders> = {
   top: { style: 'thin', color: { argb: 'FFE0E0E0' } },
@@ -8,6 +8,21 @@ const borderStyle: Partial<ExcelJS.Borders> = {
   bottom: { style: 'thin', color: { argb: 'FFE0E0E0' } },
   right: { style: 'thin', color: { argb: 'FFE0E0E0' } },
 };
+
+// Valyuta belgilari va son formatlari.
+const CCY_SYMBOL: Record<Currency, string> = { UZS: "so'm", USD: '$', EUR: '€', RUB: '₽' };
+
+/** Sonni valyuta bilan matn qilib qaytaradi: "12 000 so'm", "$4.20". */
+function money(amount: number | null | undefined, ccy: Currency): string {
+  if (amount == null) return '—';
+  // UZS/RUB butun, USD/EUR ikki kasr.
+  const decimals = ccy === 'USD' || ccy === 'EUR' ? 2 : 0;
+  const num = amount.toLocaleString('ru-RU', {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  });
+  return ccy === 'USD' || ccy === 'EUR' ? `${CCY_SYMBOL[ccy]}${num}` : `${num} ${CCY_SYMBOL[ccy]}`;
+}
 
 @Injectable()
 export class ReportService {
@@ -34,7 +49,7 @@ export class ReportService {
       'Nomi',
       'Mening narxim',
       'Raqobatdagi narx',
-      'Narx farqi',
+      `Narx farqi`,
       'Farq (%)',
       'Mening yetkazib beruvchim',
       'Raqobatdagi yetkazib beruvchi',
@@ -44,7 +59,7 @@ export class ReportService {
     ];
 
     const headerRow = ws.addRow(headers);
-    headerRow.height = 28;
+    headerRow.height = 30;
     headerRow.eachCell((cell) => {
       cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
       cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F497D' } }; // Deep Navy
@@ -55,16 +70,29 @@ export class ReportService {
     const found = rows.filter((r) => r.verdict !== 'NOT_FOUND');
     found.forEach((r, i) => {
       const compProduct = r.bestHit?.product ?? null;
+      const ownCcy = r.ownCurrency;
+      const compCcy = r.compCurrency;
       const sellPct = r.diffPercent != null ? r.diffPercent / 100 : null;
+
+      // Raqobatchi narxi: o'z valyutasida; agar mendan farq qilsa — UZS/mening
+      // valyutamga aylangani ham qavs ichida ko'rsatiladi.
+      let compPriceText = '—';
+      if (compProduct?.sellPrice != null && compCcy) {
+        compPriceText = money(compProduct.sellPrice, compCcy);
+        if (compCcy !== ownCcy && r.compSellInOwnCcy != null) {
+          compPriceText += ` (= ${money(r.compSellInOwnCcy, ownCcy)})`;
+        }
+      }
 
       const row = ws.addRow(new Array(headers.length).fill(null));
       row.height = 22;
 
       this.setCell(row.getCell(1), i + 1, undefined, 'center');
       this.setCell(row.getCell(2), r.own.name, undefined, 'left');
-      this.setCell(row.getCell(3), r.own.sellPrice, '#,##0', 'right');
-      this.setCell(row.getCell(4), compProduct?.sellPrice ?? null, '#,##0', 'right');
-      this.setCell(row.getCell(5), r.diffSom, '#,##0', 'right');
+      this.setCell(row.getCell(3), money(r.own.sellPrice, ownCcy), undefined, 'right');
+      this.setCell(row.getCell(4), compPriceText, undefined, 'right');
+      // Narx farqi — har doim MENING valyutamda.
+      this.setCell(row.getCell(5), r.diff != null ? money(r.diff, ownCcy) : '—', undefined, 'right');
       this.setCell(row.getCell(6), sellPct, '0.0%', 'right');
       this.setCell(row.getCell(7), r.own.manufacturer || '—', undefined, 'left');
       this.setCell(row.getCell(8), compProduct?.manufacturer || '—', undefined, 'left');
@@ -124,6 +152,7 @@ export class ReportService {
     };
 
     addSummaryRow('Mening price-listim', ownFileName);
+    addSummaryRow('Mening valyutam', rows[0] ? CCY_SYMBOL[rows[0].ownCurrency] : '—');
     addSummaryRow('Tahlil sanasi', new Date().toLocaleString('uz-UZ'));
     addSummaryRow('Jami mahsulotlar soni', rows.length, '#,##0');
     addSummaryRow('Raqobatchida topilganlari', found.length, '#,##0');
@@ -157,7 +186,7 @@ export class ReportService {
 
       this.setCell(row.getCell(1), i + 1, undefined, 'center');
       this.setCell(row.getCell(2), r.own.name, undefined, 'left');
-      this.setCell(row.getCell(3), r.own.sellPrice, '#,##0', 'right');
+      this.setCell(row.getCell(3), money(r.own.sellPrice, r.ownCurrency), undefined, 'right');
       this.setCell(row.getCell(4), r.own.manufacturer || '—', undefined, 'left');
       this.setCell(row.getCell(5), r.own.country || '—', undefined, 'left');
     });

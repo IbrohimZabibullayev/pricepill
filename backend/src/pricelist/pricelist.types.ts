@@ -1,3 +1,6 @@
+/** Qo'llab-quvvatlanadigan valyutalar (CBU kodlari) */
+export type Currency = 'UZS' | 'USD' | 'EUR' | 'RUB';
+
 export interface Product {
   name: string;
   manufacturer: string;
@@ -11,11 +14,14 @@ export interface Product {
 export interface PriceList {
   fileName: string;
   products: Product[];
+  /** Shu fayl narxlarining valyutasi (sarlavha/belgidan aniqlanadi, default UZS) */
+  currency: Currency;
 }
 
 // Bitta o'z mahsuloti uchun bitta raqobatchidagi eng yaqin moslik
 export interface MatchHit {
   competitorFile: string;
+  competitorCurrency: Currency;
   product: Product;
   score: number; // 0..1 moslik aniqligi
 }
@@ -23,7 +29,13 @@ export interface MatchHit {
 export interface ComparisonRow {
   own: Product;
   bestHit: MatchHit | null; // eng arzon raqobatchi narxi bo'yicha tanlangan
-  diffSom: number | null; // mening narxim - raqobatchi narxi (+ => qimmat sotyapman)
+  /** Mening valyutam (own price-list valyutasi) — farq shu valyutada */
+  ownCurrency: Currency;
+  /** Raqobatchi narxining asl valyutasi (bestHit bo'lsa) */
+  compCurrency: Currency | null;
+  /** Raqobatchi sotish narxi MENING valyutamga aylantirilgani (taqqoslash uchun) */
+  compSellInOwnCcy: number | null;
+  diff: number | null; // mening narxim - raqobatchi narxi (mening valyutamda; + => qimmat)
   diffPercent: number | null;
   verdict: 'EXPENSIVE' | 'CHEAP' | 'EQUAL' | 'NOT_FOUND';
 }
