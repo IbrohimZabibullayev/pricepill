@@ -80,20 +80,48 @@ export class AnalysisController {
   }
 
   private async downloadAndParse(file: { fileName: string; url: string }): Promise<PriceList> {
-    let buffer: Buffer;
-    try {
-      const res = await fetch(file.url);
-      if (!res.ok) {
-        throw new Error(`Telegram returned ${res.status}`);
-      }
-      buffer = Buffer.from(await res.arrayBuffer());
-    } catch (err: any) {
-      // Faqat yuklab olishdagi xato — parse xatosini bu yerda yashirmaymiz.
-      throw new PriceListParseError(
-        `«${file.fileName}» faylini yuklab bo‘lmadi: ${err.message}`,
-      );
-    }
+    const buffer = await this.downloadWithRetry(file);
     // parse() o'zining PriceListParseError'ini aniq xabar bilan otadi — uni o'tkazib yuboramiz.
     return this.pricelist.parse(buffer, file.fileName);
+  }
+
+  /**
+   * Faylni yuklab oladi. SSL/TLS yoki ulanish kabi VAQTINCHALIK tarmoq xatolarida
+   * bir necha marta qayta uradi — bitta uzilish butun tahlilni buzmasin.
+   */
+  private async downloadWithRetry(
+    file: { fileName: string; url: string },
+    attempts = 4,
+  ): Promise<Buffer> {
+    let lastErr: any;
+    for (let i = 0; i < attempts; i++) {
+      try {
+        const res = await fetch(file.url);
+        if (!res.ok) {
+          // 5xx — vaqtinchalik bo'lishi mumkin, qayta uramiz; 4xx — yo'q.
+          if (res.status >= 500 && i < attempts - 1) {
+            await this.sleep(500 * (i + 1));
+            continue;
+          }
+          throw new Error(`Telegram ${res.status} qaytardi`);
+        }
+        return Buffer.from(await res.arrayBuffer());
+      } catch (err: any) {
+        lastErr = err;
+        // Oxirgi urinish bo'lmasa — biroz kutib qayta uramiz.
+        if (i < attempts - 1) {
+          await this.sleep(500 * (i + 1));
+          continue;
+        }
+      }
+    }
+    throw new PriceListParseError(
+      `«${file.fileName}» faylini yuklab bo‘lmadi (tarmoq xatosi): ${lastErr?.message ?? lastErr}. ` +
+        `Iltimos, bir oz kutib qayta urinib ko‘ring.`,
+    );
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise((r) => setTimeout(r, ms));
   }
 }
