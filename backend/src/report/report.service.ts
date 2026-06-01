@@ -32,16 +32,14 @@ export class ReportService {
     const headers = [
       '№',
       'Nomi',
-      'Ishlab chiqaruvchi',
-      'Davlat',
-      'Mening kelish narxim',
-      'Mening sotish narxim',
-      'Raqobatdagi nomi',
+      'Mening narxim',
+      'Raqobatdagi narx',
+      'Narx farqi',
+      'Farq (%)',
+      'Mening yetkazib beruvchim',
+      'Raqobatdagi yetkazib beruvchi',
+      'Mening davlatim',
       'Raqobatchi davlati',
-      'Raqobatchi kelish narxi',
-      'Raqobatchi sotish narxi',
-      'Sotish narxi farqi',
-      'Sotish farqi (%)',
       'Raqobatchi (fayl)',
     ];
 
@@ -50,7 +48,7 @@ export class ReportService {
     headerRow.eachCell((cell) => {
       cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
       cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F497D' } }; // Deep Navy
-      cell.alignment = { horizontal: 'center', vertical: 'middle' };
+      cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
       cell.border = borderStyle;
     });
 
@@ -59,36 +57,20 @@ export class ReportService {
       const compProduct = r.bestHit?.product ?? null;
       const sellPct = r.diffPercent != null ? r.diffPercent / 100 : null;
 
-      const row = ws.addRow([
-        i + 1,
-        r.own.name,
-        r.own.manufacturer || '—',
-        r.own.country || '—',
-        r.own.purchasePrice,
-        r.own.sellPrice,
-        compProduct?.name ?? '—',
-        compProduct?.country || '—',
-        compProduct?.purchasePrice ?? null,
-        compProduct?.sellPrice ?? null,
-        r.diffSom,
-        sellPct,
-        r.bestHit?.competitorFile ?? '—',
-      ]);
+      const row = ws.addRow(new Array(headers.length).fill(null));
       row.height = 22;
 
       this.setCell(row.getCell(1), i + 1, undefined, 'center');
       this.setCell(row.getCell(2), r.own.name, undefined, 'left');
-      this.setCell(row.getCell(3), r.own.manufacturer || '—', undefined, 'left');
-      this.setCell(row.getCell(4), r.own.country || '—', undefined, 'left');
-      this.setCell(row.getCell(5), r.own.purchasePrice, '#,##0', 'right');
-      this.setCell(row.getCell(6), r.own.sellPrice, '#,##0', 'right');
-      this.setCell(row.getCell(7), compProduct?.name ?? '—', undefined, 'left');
-      this.setCell(row.getCell(8), compProduct?.country || '—', undefined, 'left');
-      this.setCell(row.getCell(9), compProduct?.purchasePrice ?? null, '#,##0', 'right');
-      this.setCell(row.getCell(10), compProduct?.sellPrice ?? null, '#,##0', 'right');
-      this.setCell(row.getCell(11), r.diffSom, '#,##0', 'right');
-      this.setCell(row.getCell(12), sellPct, '0.0%', 'right');
-      this.setCell(row.getCell(13), r.bestHit?.competitorFile ?? '—', undefined, 'left');
+      this.setCell(row.getCell(3), r.own.sellPrice, '#,##0', 'right');
+      this.setCell(row.getCell(4), compProduct?.sellPrice ?? null, '#,##0', 'right');
+      this.setCell(row.getCell(5), r.diffSom, '#,##0', 'right');
+      this.setCell(row.getCell(6), sellPct, '0.0%', 'right');
+      this.setCell(row.getCell(7), r.own.manufacturer || '—', undefined, 'left');
+      this.setCell(row.getCell(8), compProduct?.manufacturer || '—', undefined, 'left');
+      this.setCell(row.getCell(9), r.own.country || '—', undefined, 'left');
+      this.setCell(row.getCell(10), compProduct?.country || '—', undefined, 'left');
+      this.setCell(row.getCell(11), r.bestHit?.competitorFile ?? '—', undefined, 'left');
 
       // Qimmat sotyapsiz — yumshoq qizil, arzon — yumshoq yashil
       const color =
@@ -100,7 +82,7 @@ export class ReportService {
       }
     });
 
-    ws.autoFilter = { from: 'A1', to: 'M1' };
+    ws.autoFilter = { from: 'A1', to: 'K1' };
     this.autofitColumns(ws);
   }
 
@@ -158,7 +140,7 @@ export class ReportService {
     const ws = wb.addWorksheet('Topilmadi');
     ws.views = [{ state: 'frozen', ySplit: 1 }];
 
-    const headers = ['№', 'Nomi', 'Ishlab chiqaruvchi', 'Davlat', 'Mening kelish narxim', 'Mening sotish narxim'];
+    const headers = ['№', 'Nomi', 'Mening narxim', 'Yetkazib beruvchi', 'Davlat'];
     const headerRow = ws.addRow(headers);
     headerRow.height = 28;
     headerRow.eachCell((cell) => {
@@ -170,22 +152,14 @@ export class ReportService {
 
     const notFound = rows.filter((r) => r.verdict === 'NOT_FOUND');
     notFound.forEach((r, i) => {
-      const row = ws.addRow([
-        i + 1,
-        r.own.name,
-        r.own.manufacturer || '—',
-        r.own.country || '—',
-        r.own.purchasePrice,
-        r.own.sellPrice,
-      ]);
+      const row = ws.addRow(new Array(headers.length).fill(null));
       row.height = 22;
 
       this.setCell(row.getCell(1), i + 1, undefined, 'center');
       this.setCell(row.getCell(2), r.own.name, undefined, 'left');
-      this.setCell(row.getCell(3), r.own.manufacturer || '—', undefined, 'left');
-      this.setCell(row.getCell(4), r.own.country || '—', undefined, 'left');
-      this.setCell(row.getCell(5), r.own.purchasePrice, '#,##0', 'right');
-      this.setCell(row.getCell(6), r.own.sellPrice, '#,##0', 'right');
+      this.setCell(row.getCell(3), r.own.sellPrice, '#,##0', 'right');
+      this.setCell(row.getCell(4), r.own.manufacturer || '—', undefined, 'left');
+      this.setCell(row.getCell(5), r.own.country || '—', undefined, 'left');
     });
 
     this.autofitColumns(ws);
