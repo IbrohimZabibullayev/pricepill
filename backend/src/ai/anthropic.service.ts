@@ -11,8 +11,6 @@ export interface AiMatchResult {
   candidateIndex: number;
   /** AI ishonch darajasi (0-1) */
   confidence: number;
-  /** Mos kelgan faol modda (INN) — foydalanuvchi tekshirishi uchun. Moslik yo'q bo'lsa bo'sh. */
-  substance?: string;
 }
 
 /** AI ustun aniqlash natijasi — har maydon uchun 0-asosli indeks yoki -1 */
@@ -250,31 +248,27 @@ Respond ONLY with a valid JSON object, no explanation:
       );
     });
 
-    return `You are a pharmaceutical product matching expert working across MULTIPLE LANGUAGES.
-For each OWN product below, identify which NOMINATED CANDIDATE (if any) is the SAME drug product — meaning the SAME active pharmaceutical ingredient (active substance), the SAME dosage form (tablet/capsule/syrup/etc), and the SAME strength/dosage.
+    return `You are matching pharmaceutical products across MULTIPLE LANGUAGES.
+For each OWN product below, find the NOMINATED CANDIDATE (if any) that is the SAME PRODUCT — the SAME trade/brand name, the SAME dosage form (tablet/capsule/syrup/etc), the SAME strength/dosage, and the SAME pack size.
 
-The product names may be written in DIFFERENT LANGUAGES and scripts (e.g. Uzbek Latin, Uzbek Cyrillic, Russian, English, French). Match by MEANING — the underlying drug — not by spelling. Notation in parentheses "(...)" is the manufacturer; notation in braces "{...}" is the country of origin.
+Notation in parentheses "(...)" is the manufacturer; notation in braces "{...}" is the country of origin.
 
-CRITICAL — avoid false matches:
-- The candidates were pre-filtered by crude SPELLING similarity, so MANY of them are completely different drugs that merely share some letters (e.g. "Avitset" vs "Atorvastatin" vs "Atsiklovir"). These are NOT matches.
-- A match is ONLY valid when you are confident it is the SAME active substance. If the active substance differs, the answer is -1 — even if the names look similar or share a common prefix.
-- A WRONG match is much worse than no match. When in doubt, return candidateIndex -1.
+Match by the PRODUCT NAME ITSELF. You may ONLY look past:
+- different scripts / transliteration of the SAME name (e.g. "Парацетамол" = "Paratsetamol" = "Paracetamol"; "Но-шпа" = "No-shpa").
+- minor spelling, spacing, punctuation or word-order differences.
+- abbreviations of the same words (e.g. "таб." = "tab", "капс." = "kaps").
 
-Matching rules:
-- Brand names and generic names for the SAME substance ARE a match (e.g. "No-shpa" and "Drotaverin").
-- The same drug named in different languages IS a match (e.g. "Парацетамол" = "Paratsetamol" = "Paracétamol" = "Paracetamol").
-- Different active substances are NEVER a match, regardless of similar spelling.
-- Different dosages (e.g. 500mg vs 250mg) are NOT a match.
-- Different dosage forms (tablet vs syrup) are NOT a match.
-- Country of origin and manufacturer are extra context only — DO NOT reject a match just because the country or manufacturer differs.
+These are NOT a match — return candidateIndex -1:
+- DIFFERENT names, EVEN IF the two drugs share the same active ingredient. The user wants the SAME product, NOT a therapeutic equivalent or generic substitute. Examples that must return -1: "Азимакс" vs "Азитромицин"; "No-shpa" vs "Дротаверин"; "Авицет" vs "Амлодипин". A brand/trade name is NEVER equal to the generic (INN) name or to a different brand of the same substance.
+- Different strength (500mg vs 250mg), different dosage form (tablet vs syrup), or different pack size (№10 vs №20).
+- Two products that merely share some letters. The candidates were pre-filtered by crude spelling similarity, so MANY of them are unrelated.
 
-Confidence: set it to your GENUINE certainty that it is the same drug. Use a high value (>=0.8) only when the active substance, form and strength clearly agree. If you are guessing, the confidence is low and you should return -1 instead.
-
-"substance": the international generic name (INN) of the shared active ingredient that justifies the match, written in Russian Cyrillic (e.g. "Азитромицин", "Парацетамол", "Амлодипин"). If candidateIndex is -1, set substance to "".
+A WRONG match is much worse than no match. When in doubt, return -1.
+Confidence: your genuine certainty it is the SAME product (same name + form + strength + pack). Use >=0.8 only when clearly the same; if guessing, return -1.
 
 Respond ONLY with a valid JSON array, no explanation.
 Format:
-[{"ownIndex": <number>, "candidateIndex": <number or -1>, "confidence": <0.0-1.0>, "substance": "<INN or empty>"}, ...]
+[{"ownIndex": <number>, "candidateIndex": <number or -1>, "confidence": <0.0-1.0>}, ...]
 
 Products to match:
 ${items.join('\n\n')}`;
@@ -287,19 +281,12 @@ ${items.join('\n\n')}`;
       if (!jsonMatch) return [];
       const parsed = JSON.parse(jsonMatch[0]);
       if (!Array.isArray(parsed)) return [];
-      return parsed
-        .filter(
-          (r: any) =>
-            typeof r.ownIndex === 'number' &&
-            typeof r.candidateIndex === 'number' &&
-            typeof r.confidence === 'number',
-        )
-        .map((r: any) => ({
-          ownIndex: r.ownIndex,
-          candidateIndex: r.candidateIndex,
-          confidence: r.confidence,
-          substance: typeof r.substance === 'string' ? r.substance.trim() : undefined,
-        })) as AiMatchResult[];
+      return parsed.filter(
+        (r: any) =>
+          typeof r.ownIndex === 'number' &&
+          typeof r.candidateIndex === 'number' &&
+          typeof r.confidence === 'number',
+      ) as AiMatchResult[];
     } catch {
       this.logger.error('AI javobini parse qilishda xato. Javob:', text.slice(0, 200));
       return [];
