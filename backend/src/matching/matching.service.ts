@@ -379,7 +379,7 @@ export class MatchingService {
     return true;
   }
 
-  /** Nomdan dozalarni ajratadi: "5мг", "250 mg", "15%", "30г" → {"5mg","250mg",...}. */
+  /** Nomdan dozalarni ajratib, YAGONA o'lchovga keltiradi: "0,5г"="500мг"="500000mcg". */
   private extractStrengths(name: string): Set<string> {
     const set = new Set<string>();
     // DIQQAT: oxirida `\b` ISHLATMA — JS'da `\b` faqat ASCII, kirill "мг"дан keyin
@@ -387,19 +387,23 @@ export class MatchingService {
     const re = /(\d+(?:[.,]\d+)?)\s*(mcg|мкг|mg|мг|ml|мл|me|ме|iu|ед|g|г|%)(?![a-zа-яё])/gi;
     let m: RegExpExecArray | null;
     while ((m = re.exec(name)) !== null) {
-      const num = m[1].replace(',', '.');
-      set.add(`${num}${this.normUnit(m[2].toLowerCase())}`);
+      const num = parseFloat(m[1].replace(',', '.'));
+      if (Number.isFinite(num)) set.add(this.canonStrength(num, m[2].toLowerCase()));
     }
     return set;
   }
 
-  /** Kirill/lotin birliklarini yagona shaklga keltiradi (мг↔mg va h.k.). */
-  private normUnit(u: string): string {
-    const map: Record<string, string> = {
-      'мг': 'mg', mg: 'mg', 'мкг': 'mcg', mcg: 'mcg', 'г': 'g', g: 'g',
-      'мл': 'ml', ml: 'ml', 'ме': 'iu', me: 'iu', iu: 'iu', 'ед': 'iu', '%': '%',
-    };
-    return map[u] ?? u;
+  /**
+   * Dozani yagona bazaviy o'lchovga keltiradi — birlik boshqacha yozilsa ham
+   * (0,5г vs 500мг) bir xil bo'lib chiqsin. Massa → mkg, hajm → mkl.
+   */
+  private canonStrength(num: number, unit: string): string {
+    const mass: Record<string, number> = { 'г': 1e6, g: 1e6, 'мг': 1e3, mg: 1e3, 'мкг': 1, mcg: 1 };
+    if (unit in mass) return `${Math.round(num * mass[unit])}mcg`;
+    if (unit === 'мл' || unit === 'ml') return `${Math.round(num * 1000)}ul`;
+    if (unit === 'ме' || unit === 'me' || unit === 'iu' || unit === 'ед') return `${num}iu`;
+    if (unit === '%') return `${num}%`;
+    return `${num}${unit}`;
   }
 
   /** Nomdan o'ram/sonini ajratadi: "№30", "N100", "#50" → {"30","100","50"}. */
