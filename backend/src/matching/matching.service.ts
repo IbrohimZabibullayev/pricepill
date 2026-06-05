@@ -16,6 +16,12 @@ interface Normed {
   nName: string;
   nManuf: string;
   tokens: Set<string>;
+  /** Dozalar (masalan "5mg", "250mg") — moslik uchun MAJBURIY bir xil bo'lishi kerak. */
+  strengths: Set<string>;
+  /** O'rami/soni (№30 → "30") — moslik uchun MAJBURIY bir xil bo'lishi kerak. */
+  packs: Set<string>;
+  /** "bolalar" yoki "kattalar" varianti — qarama-qarshi bo'lsa moslik yo'q. */
+  audience: 'child' | 'adult' | null;
 }
 
 interface CompFile {
@@ -334,15 +340,85 @@ export class MatchingService {
       nName,
       nManuf,
       tokens: new Set(nName.split(' ').filter(Boolean)),
+      // Doza/o'ram/auditoriyani ASL nomdan ajratamiz (norm № va belgilarni o'chiradi).
+      strengths: this.extractStrengths(p.name),
+      packs: this.extractPacks(p.name),
+      audience: this.detectAudience(p.name),
     };
   }
 
   /** Oldindan normallashtirilgan ikki mahsulot skori. */
   private scoreN(a: Normed, b: Normed): number {
+    // DETERMINISTIK FILTR: doza / o'ram(soni) / bolalar-kattalar farqi bo'lsa —
+    // bu boshqa mahsulot, moslik MUMKIN EMAS (auto-accept ham, AI ham ko'rmaydi).
+    if (!this.compatible(a, b)) return 0;
+
     const nameScore = this.simTokens(a.nName, a.tokens, b.nName, b.tokens);
     const manufScore =
       a.nManuf && b.nManuf ? this.simStr(a.nManuf, b.nManuf) : 0.5; // yo'q bo'lsa neytral
     return nameScore * 0.8 + manufScore * 0.2;
+  }
+
+  /**
+   * Ikki dori «bir xil mahsulot» bo'la oladimi — qattiq, matematik tekshiruv.
+   * Ikkalasida ham aniqlangan doza/o'ram bir xil bo'lishi shart; biri noma'lum
+   * bo'lsa — bloklamaymiz (kam ma'lumotni jazolamaymiz).
+   */
+  private compatible(a: Normed, b: Normed): boolean {
+    if (!this.setsMatch(a.strengths, b.strengths)) return false;
+    if (!this.setsMatch(a.packs, b.packs)) return false;
+    if (a.audience && b.audience && a.audience !== b.audience) return false;
+    return true;
+  }
+
+  /** Ikki to'plam mos — ikkalasi ham bo'sh emas bo'lsa, AYNAN teng bo'lishi kerak. */
+  private setsMatch(a: Set<string>, b: Set<string>): boolean {
+    if (a.size === 0 || b.size === 0) return true; // biri noma'lum — bloklamaymiz
+    if (a.size !== b.size) return false;
+    for (const x of a) if (!b.has(x)) return false;
+    return true;
+  }
+
+  /** Nomdan dozalarni ajratadi: "5мг", "250 mg", "15%", "30г" → {"5mg","250mg",...}. */
+  private extractStrengths(name: string): Set<string> {
+    const set = new Set<string>();
+    // DIQQAT: oxirida `\b` ISHLATMA — JS'da `\b` faqat ASCII, kirill "мг"дан keyin
+    // mos kelmaydi (doza umuman ajralmay qoladi). O'rniga: keyin harf KELMASIN.
+    const re = /(\d+(?:[.,]\d+)?)\s*(mcg|мкг|mg|мг|ml|мл|me|ме|iu|ед|g|г|%)(?![a-zа-яё])/gi;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(name)) !== null) {
+      const num = m[1].replace(',', '.');
+      set.add(`${num}${this.normUnit(m[2].toLowerCase())}`);
+    }
+    return set;
+  }
+
+  /** Kirill/lotin birliklarini yagona shaklga keltiradi (мг↔mg va h.k.). */
+  private normUnit(u: string): string {
+    const map: Record<string, string> = {
+      'мг': 'mg', mg: 'mg', 'мкг': 'mcg', mcg: 'mcg', 'г': 'g', g: 'g',
+      'мл': 'ml', ml: 'ml', 'ме': 'iu', me: 'iu', iu: 'iu', 'ед': 'iu', '%': '%',
+    };
+    return map[u] ?? u;
+  }
+
+  /** Nomdan o'ram/sonini ajratadi: "№30", "N100", "#50" → {"30","100","50"}. */
+  private extractPacks(name: string): Set<string> {
+    const set = new Set<string>();
+    const re = /(?:№|#|\bN)\s*(\d+)/gi;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(name)) !== null) set.add(m[1]);
+    return set;
+  }
+
+  /** "bolalar" yoki "kattalar" varianti (faqat aniq belgilar bo'lsa). */
+  private detectAudience(name: string): 'child' | 'adult' | null {
+    const s = name.toLowerCase();
+    const child = /детск|для детей|дет\.|педиатр|bolalar|болалар|child|kids|pediatr/.test(s);
+    const adult = /взросл|для взрослых|kattalar|катталар|adult/.test(s);
+    if (child && !adult) return 'child';
+    if (adult && !child) return 'adult';
+    return null;
   }
 
   /** Levenshtein nisbati va token (so'z) Dice o'xshashligidan kattasi. */
