@@ -49,7 +49,10 @@ export const TEXT = {
   notXlsx: '⚠️ Faqat Excel (.xlsx yoki .xls) fayl qabul qilinadi. Qayta yuboring.',
   noOwnYet: 'Avval «📊 Yangi tahlil» tugmasidan boshlang.',
   needCompetitors: '⚠️ Kamida bitta taqqoslash uchun price-list yuboring.',
-  analyzing: '⏳ Tahlil qilinmoqda...',
+  analyzing:
+    '⏳ Tahlil boshlandi...\n\n' +
+    "Katta price-listlar uchun bu 5-7 daqiqagacha davom etishi mumkin. " +
+    "Tayyor bo'lishi bilan hisobotni shu yerga yuboraman — kutib turing.",
   cancelled: '❌ Bekor qilindi.',
 
   help:

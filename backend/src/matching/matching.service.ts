@@ -45,8 +45,11 @@ interface CompareCtx {
   rates: RateMap;
 }
 
-const CANDIDATE_TOP = 4;          // Har raqobatchi fayldan olinadigan eng yaxshi n ta (balansli: topish vs tezlik)
-const CANDIDATE_THRESHOLD = 0.24; // Nomzodlikka kiradigan minimal lokal skor (balansli)
+const CANDIDATE_TOP = 3;          // Har raqobatchi fayldan olinadigan eng yaxshi n ta.
+                                  // 4→3: AIga ketadigan token ~25% kamayadi (tezroq),
+                                  // haqiqiy moslik deyarli har doim top-3 ichida bo'ladi.
+const CANDIDATE_THRESHOLD = 0.30; // Nomzodlikka kiradigan minimal lokal skor. 0.24→0.30:
+                                  // umuman aloqasiz nomzodlar AIga bormaydi (token tejaladi).
 const LOCAL_THRESHOLD = 0.60;     // AI yo'q bo'lsa — eski chegara
 const BATCH_SIZE = 12;            // Bir AI so'rovidagi mahsulotlar soni. Kichikroq =
                                  // model javoblarni aralashtirib yubormaydi (false match kamayadi).

@@ -1,7 +1,7 @@
 import { Telegraf, Context } from 'telegraf';
 import * as dotenv from 'dotenv';
 import { sessionManager, UploadedFile } from './session';
-import { getUser, upsertUser, setPhone, analyzePrices } from './api';
+import { getUser, upsertUser, setPhone, startAnalysis, getAnalysisStatus, StatusResult } from './api';
 import {
   BTN,
   TEXT,
@@ -170,7 +170,7 @@ bot.action('analyze', async (ctx) => {
     // 1. Resolve direct download URLs from Telegram
     const ownUrl = (await ctx.telegram.getFileLink(state.own.fileId)).href;
     const competitorsWithUrls = [];
-    
+
     for (const comp of state.competitors) {
       const compUrl = (await ctx.telegram.getFileLink(comp.fileId)).href;
       competitorsWithUrls.push({
@@ -179,8 +179,8 @@ bot.action('analyze', async (ctx) => {
       });
     }
 
-    // 2. Call backend analyze API
-    const res = await analyzePrices({
+    // 2. Tahlilni boshlaymiz — backend darrov jobId qaytaradi (so'rov qisqa).
+    const { jobId } = await startAnalysis({
       telegramId: from.id,
       own: {
         fileName: state.own.fileName,
@@ -189,11 +189,19 @@ bot.action('analyze', async (ctx) => {
       competitors: competitorsWithUrls,
     });
 
-    if (!res.success || !res.reportBase64) {
-      throw new Error('Tahlil natijasi bo‘sh keldi.');
+    // 3. Holatni QISQA so'rovlar bilan so'rab turamiz. Har so'rov tez tugaydi,
+    //    shuning uchun Railway proxy'si hech narsani uzmaydi (502 yo'q). Katta
+    //    price-listlar uchun tahlil 5-7 daqiqa davom etishi mumkin.
+    const res = await pollUntilDone(jobId);
+
+    if (res.status === 'error') {
+      throw new Error(res.message || 'Tahlil natijasi bo‘sh keldi.');
+    }
+    if (!res.reportBase64) {
+      throw new Error('Tahlil tugadi, lekin hisobot bo‘sh keldi.');
     }
 
-    // 3. Convert base64 back to buffer and reply
+    // 4. Convert base64 back to buffer and reply
     const buffer = Buffer.from(res.reportBase64, 'base64');
 
     await ctx.replyWithDocument(
@@ -219,6 +227,38 @@ bot.action('analyze', async (ctx) => {
     sessionManager.reset(from.id);
   }
 });
+
+/**
+ * Job tugaguncha holatni qisqa intervalda so'rab turadi. Har bir so'rov tez
+ * tugaydi — uzoq ulanish ochib qo'yilmaydi, shuning uchun proxy timeout (502)
+ * bo'lmaydi. `done` yoki `error` qaytsa to'xtaydi; juda uzoq cho'zilsa — xato.
+ */
+async function pollUntilDone(jobId: string): Promise<StatusResult> {
+  const POLL_INTERVAL_MS = 7000; // har 7 soniyada bir tekshiramiz
+  const MAX_WAIT_MS = 15 * 60 * 1000; // 15 daqiqa — bundan ortig'i = nimadir buzilgan
+  const started = Date.now();
+
+  for (;;) {
+    await sleep(POLL_INTERVAL_MS);
+    let st: StatusResult;
+    try {
+      st = await getAnalysisStatus(jobId);
+    } catch (err: any) {
+      // Job topilmasa (404 — server qayta ishga tushgan) yoki tarmoq sakrasa —
+      // vaqt tugaguncha yana urinamiz, bitta uzilish tahlilni buzmasin.
+      if (Date.now() - started > MAX_WAIT_MS) throw err;
+      continue;
+    }
+    if (st.status === 'done' || st.status === 'error') return st;
+    if (Date.now() - started > MAX_WAIT_MS) {
+      throw new Error('Tahlil juda uzoq davom etdi (15 daqiqadan oshdi).');
+    }
+  }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 // Helper validation functions
 function isXlsx(doc: any): boolean {

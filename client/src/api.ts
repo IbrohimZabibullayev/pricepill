@@ -29,12 +29,21 @@ export interface User {
   phone?: string | null;
 }
 
-export interface AnalyzeResult {
+/** /analyze POST javobi — tahlil boshlandi, jobId qaytadi. */
+export interface StartResult {
   success: boolean;
-  totalCount: number;
-  matchedCount: number;
-  notFoundCount: number;
-  reportBase64: string;
+  jobId: string;
+}
+
+/** /analyze/:jobId GET javobi — tahlil holati. */
+export interface StatusResult {
+  success: boolean;
+  status: 'processing' | 'done' | 'error';
+  totalCount?: number;
+  matchedCount?: number;
+  notFoundCount?: number;
+  reportBase64?: string;
+  message?: string;
 }
 
 export async function upsertUser(tg: { id: number; username?: string; firstName?: string }): Promise<User> {
@@ -51,11 +60,18 @@ export async function setPhone(telegramId: number, phone: string): Promise<void>
   await api.post('/users/phone', { telegramId, phone });
 }
 
-export async function analyzePrices(data: {
+/** Tahlilni BOSHLAYDI — darrov jobId qaytadi (so'rov qisqa, proxy uzmaydi). */
+export async function startAnalysis(data: {
   telegramId: number;
   own: { fileName: string; url: string };
   competitors: Array<{ fileName: string; url: string }>;
-}): Promise<AnalyzeResult> {
-  const res = await api.post<AnalyzeResult>('/analyze', data);
+}): Promise<StartResult> {
+  const res = await api.post<StartResult>('/analyze', data);
+  return res.data;
+}
+
+/** Tahlil holatini so'raydi (client buni qisqa intervalda takrorlab turadi). */
+export async function getAnalysisStatus(jobId: string): Promise<StatusResult> {
+  const res = await api.get<StatusResult>(`/analyze/${jobId}`);
   return res.data;
 }

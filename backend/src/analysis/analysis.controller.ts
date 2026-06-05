@@ -1,12 +1,42 @@
-import { Controller, Post, Body, HttpException, HttpStatus } from '@nestjs/common';
+import { Controller, Post, Get, Param, Body, HttpException, HttpStatus } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { PricelistService, PriceListParseError } from '../pricelist/pricelist.service';
 import { MatchingService } from '../matching/matching.service';
 import { ReportService } from '../report/report.service';
 import { UsersService } from '../users/users.service';
 import { PriceList } from '../pricelist/pricelist.types';
 
+/** Foydalanuvchidan keladigan tahlil so'rovi tanasi. */
+interface AnalyzeBody {
+  telegramId: number;
+  own: { fileName: string; url: string };
+  competitors: Array<{ fileName: string; url: string }>;
+}
+
+/**
+ * Bitta tahlil topshirig'i (job). Tahlil 5-7 daqiqa davom etishi mumkin —
+ * Railway'ning tashqi proxy'si esa uzoq HTTP so'rovni ~5 daqiqada uzib tashlaydi
+ * (502). Shuning uchun ASYNC ishlaymiz: so'rov darrov jobId qaytaradi, tahlil
+ * ORQADA ishlaydi, client esa qisqa GET so'rovlar bilan holatni so'rab turadi.
+ */
+interface AnalysisJob {
+  status: 'processing' | 'done' | 'error';
+  createdAt: number;
+  totalCount?: number;
+  matchedCount?: number;
+  notFoundCount?: number;
+  reportBase64?: string;
+  message?: string;
+}
+
+const JOB_TTL_MS = 30 * 60 * 1000; // Tugagan jobni 30 daqiqadan keyin xotiradan o'chiramiz
+
 @Controller('analyze')
 export class AnalysisController {
+  // Joblar xotirada saqlanadi (bitta replica uchun yetarli). Replica > 1 bo'lsa
+  // POST va GET turli replicaга tushib, job topilmasligi mumkin — u holда DB/Redis kerak.
+  private readonly jobs = new Map<string, AnalysisJob>();
+
   constructor(
     private readonly pricelist: PricelistService,
     private readonly matching: MatchingService,
@@ -14,37 +44,75 @@ export class AnalysisController {
     private readonly users: UsersService,
   ) {}
 
+  /**
+   * Tahlilni BOSHLAYDI va darrov jobId qaytaradi (so'rov qisqa — proxy uzmaydi).
+   * Asl ish `runJob` ichida orqada, kutmasdan ishlaydi.
+   */
   @Post()
-  async analyze(
-    @Body()
-    body: {
-      telegramId: number;
-      own: { fileName: string; url: string };
-      competitors: Array<{ fileName: string; url: string }>;
-    },
-  ) {
+  async start(@Body() body: AnalyzeBody): Promise<{ success: true; jobId: string }> {
     if (!body.own || !body.competitors || body.competitors.length === 0) {
       throw new HttpException('Fayllar to‘liq yuborilmadi.', HttpStatus.BAD_REQUEST);
     }
+    this.cleanupOldJobs();
 
+    const jobId = randomUUID();
+    this.jobs.set(jobId, { status: 'processing', createdAt: Date.now() });
+    // Fire-and-forget: javobni kutmaymiz. Xatolar runJob ichida ushlanadi.
+    void this.runJob(jobId, body);
+
+    return { success: true, jobId };
+  }
+
+  /**
+   * Job holatini qaytaradi. Client buni har bir necha soniyada so'rab turadi.
+   * `processing` — hali ishlayapti; `done` — hisobot tayyor (reportBase64);
+   * `error` — xato (message bilan).
+   */
+  @Get(':jobId')
+  status(@Param('jobId') jobId: string) {
+    const job = this.jobs.get(jobId);
+    if (!job) {
+      throw new HttpException(
+        'Tahlil topilmadi (eskirgan yoki server qayta ishga tushgan bo‘lishi mumkin).',
+        HttpStatus.NOT_FOUND,
+      );
+    }
+    if (job.status === 'processing') {
+      return { success: true, status: 'processing' as const };
+    }
+    if (job.status === 'error') {
+      return { success: false, status: 'error' as const, message: job.message };
+    }
+    return {
+      success: true,
+      status: 'done' as const,
+      totalCount: job.totalCount,
+      matchedCount: job.matchedCount,
+      notFoundCount: job.notFoundCount,
+      reportBase64: job.reportBase64,
+    };
+  }
+
+  /** Asl tahlil — orqada ishlaydi, natijani job'ga yozadi. */
+  private async runJob(jobId: string, body: AnalyzeBody): Promise<void> {
     try {
-      // 1. Download and parse own list
+      // 1. O'z faylni yuklab, o'qiymiz.
       const ownList = await this.downloadAndParse(body.own);
 
-      // 2. Download and parse competitors list
+      // 2. Raqobatchilar fayllarini yuklab, o'qiymiz.
       const competitorLists: PriceList[] = [];
       for (const comp of body.competitors) {
         competitorLists.push(await this.downloadAndParse(comp));
       }
 
-      // 3. Run comparison
+      // 3. Taqqoslash.
       const rows = await this.matching.compare(ownList, competitorLists);
       const matched = rows.filter((r) => r.verdict !== 'NOT_FOUND').length;
 
-      // 4. Generate report excel
+      // 4. Hisobot Excel.
       const buffer = await this.report.build(rows, ownList.fileName);
 
-      // 5. Log the analysis
+      // 5. Tahlilni jurnalga yozamiz (xato bo'lsa ham tahLil buzilmasin).
       try {
         await this.users.logAnalysis({
           telegramId: body.telegramId,
@@ -54,28 +122,32 @@ export class AnalysisController {
           matchedCount: matched,
         });
       } catch (logErr) {
-        // Do not fail the whole request if log analysis fails
         console.error('Failed to log analysis:', logErr);
       }
 
-      return {
-        success: true,
+      this.jobs.set(jobId, {
+        status: 'done',
+        createdAt: Date.now(),
         totalCount: rows.length,
         matchedCount: matched,
         notFoundCount: rows.length - matched,
         reportBase64: buffer.toString('base64'),
-      };
+      });
     } catch (e: any) {
-      // Faylga oid (parse) xatolar foydalanuvchi tomonidagi muammo — 400.
-      // Qolganlari kutilmagan ichki xato — 500.
-      const status =
+      // Foydalanuvchiga tushunarli xabar — parse xatolari aniq matnli keladi.
+      const message =
         e instanceof PriceListParseError
-          ? HttpStatus.BAD_REQUEST
-          : HttpStatus.INTERNAL_SERVER_ERROR;
-      throw new HttpException(
-        e.message || 'Tahlilda kutilmagan xatolik yuz berdi.',
-        status,
-      );
+          ? e.message
+          : e?.message || 'Tahlilda kutilmagan xatolik yuz berdi.';
+      this.jobs.set(jobId, { status: 'error', createdAt: Date.now(), message });
+    }
+  }
+
+  /** Eskirgan (TTL o'tgan) joblarni xotiradan tozalaydi — xotira shishmasin. */
+  private cleanupOldJobs(): void {
+    const now = Date.now();
+    for (const [id, job] of this.jobs) {
+      if (now - job.createdAt > JOB_TTL_MS) this.jobs.delete(id);
     }
   }
 
