@@ -48,8 +48,14 @@ interface CompareCtx {
 const CANDIDATE_TOP = 4;          // Har raqobatchi fayldan olinadigan eng yaxshi n ta (balansli: topish vs tezlik)
 const CANDIDATE_THRESHOLD = 0.24; // Nomzodlikka kiradigan minimal lokal skor (balansli)
 const LOCAL_THRESHOLD = 0.60;     // AI yo'q bo'lsa — eski chegara
-const BATCH_SIZE = 25;            // Bir AI so'rovidagi mahsulotlar soni
+const BATCH_SIZE = 12;            // Bir AI so'rovidagi mahsulotlar soni. Kichikroq =
+                                 // model javoblarni aralashtirib yubormaydi (false match kamayadi).
 const AI_CONCURRENCY = 4;         // Parallel AI so'rovlari (token byudjet asosiy cheklov)
+
+// AI moslikni qabul qilish uchun minimal ishonch. Bundan past bo'lsa — AI aslida
+// taxmin qilyapti; noto'g'ri taqqoslashdan ko'ra «topilmadi» yaxshiroq. Promptда
+// modeldan rostgo'y confidence so'raymiz; bu yerda esa pastlarini rad qilamiz.
+const AI_MIN_CONFIDENCE = 0.7;
 
 // ── Kredit/token tejash chegaralari ──
 // AI faqat CHINAKAM SHUBHALI hollarda ishlatiladi. Aniq mosliklar va aniq
@@ -179,7 +185,14 @@ export class MatchingService {
       if (auto) {
         // Lokal yo'l bilan ishonchli tanlangan.
         bestHit = this.toHit(auto);
-      } else if (aiResult && aiResult.candidateIdx >= 0 && aiResult.candidateIdx < candidates.length) {
+      } else if (
+        aiResult &&
+        aiResult.candidateIdx >= 0 &&
+        aiResult.candidateIdx < candidates.length &&
+        aiResult.confidence >= AI_MIN_CONFIDENCE
+      ) {
+        // AI moslik topdi VA yetarlicha ishonchli. Past ishonchli «taxminlar»
+        // bu yerga kirmaydi — ular noto'g'ri taqqoslashga sabab bo'lardi.
         const chosen = candidates[aiResult.candidateIdx];
         bestHit = this.toHit(chosen, aiResult.confidence);
       } else if (!aiResult && candidates.length > 0) {

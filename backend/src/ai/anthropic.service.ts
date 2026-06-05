@@ -249,19 +249,26 @@ Respond ONLY with a valid JSON object, no explanation:
     });
 
     return `You are a pharmaceutical product matching expert working across MULTIPLE LANGUAGES.
-For each OWN product below, identify which NOMINATED CANDIDATE (if any) refers to the same drug product — same active substance, same dosage form (tablet/capsule/syrup/etc), and same strength/dosage.
+For each OWN product below, identify which NOMINATED CANDIDATE (if any) is the SAME drug product — meaning the SAME active pharmaceutical ingredient (active substance), the SAME dosage form (tablet/capsule/syrup/etc), and the SAME strength/dosage.
 
 The product names may be written in DIFFERENT LANGUAGES and scripts (e.g. Uzbek Latin, Uzbek Cyrillic, Russian, English, French). Match by MEANING — the underlying drug — not by spelling. Notation in parentheses "(...)" is the manufacturer; notation in braces "{...}" is the country of origin.
 
-Rules:
-- Brand names and generic names for the same substance ARE a match (e.g. "No-shpa" and "Drotaverin").
+CRITICAL — avoid false matches:
+- The candidates were pre-filtered by crude SPELLING similarity, so MANY of them are completely different drugs that merely share some letters (e.g. "Avitset" vs "Atorvastatin" vs "Atsiklovir"). These are NOT matches.
+- A match is ONLY valid when you are confident it is the SAME active substance. If the active substance differs, the answer is -1 — even if the names look similar or share a common prefix.
+- A WRONG match is much worse than no match. When in doubt, return candidateIndex -1.
+
+Matching rules:
+- Brand names and generic names for the SAME substance ARE a match (e.g. "No-shpa" and "Drotaverin").
 - The same drug named in different languages IS a match (e.g. "Парацетамол" = "Paratsetamol" = "Paracétamol" = "Paracetamol").
+- Different active substances are NEVER a match, regardless of similar spelling.
 - Different dosages (e.g. 500mg vs 250mg) are NOT a match.
 - Different dosage forms (tablet vs syrup) are NOT a match.
 - Country of origin and manufacturer are extra context only — DO NOT reject a match just because the country or manufacturer differs.
-- If NO candidate matches, use candidateIndex -1.
-- Respond ONLY with a valid JSON array, no explanation.
 
+Confidence: set it to your GENUINE certainty that it is the same drug. Use a high value (>=0.8) only when the active substance, form and strength clearly agree. If you are guessing, the confidence is low and you should return -1 instead.
+
+Respond ONLY with a valid JSON array, no explanation.
 Format:
 [{"ownIndex": <number>, "candidateIndex": <number or -1>, "confidence": <0.0-1.0>}, ...]
 
