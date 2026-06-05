@@ -171,10 +171,14 @@ export class MatchingService {
       return this.ai.matchBatch(aiRequests);
     });
 
-    const aiResultMap = new Map<number, { candidateIdx: number; confidence: number }>();
+    const aiResultMap = new Map<number, { candidateIdx: number; confidence: number; substance?: string }>();
     for (const results of batchResults) {
       for (const r of results) {
-        aiResultMap.set(r.ownIndex, { candidateIdx: r.candidateIndex, confidence: r.confidence });
+        aiResultMap.set(r.ownIndex, {
+          candidateIdx: r.candidateIndex,
+          confidence: r.confidence,
+          substance: r.substance,
+        });
       }
     }
 
@@ -197,7 +201,7 @@ export class MatchingService {
         // AI moslik topdi VA yetarlicha ishonchli. Past ishonchli «taxminlar»
         // bu yerga kirmaydi — ular noto'g'ri taqqoslashga sabab bo'lardi.
         const chosen = candidates[aiResult.candidateIdx];
-        bestHit = this.toHit(chosen, aiResult.confidence);
+        bestHit = this.toHit(chosen, aiResult.confidence, aiResult.substance);
       } else if (!aiResult && candidates.length > 0) {
         // AI javob bermagan bo'lsa — lokal eng yaxshi nomzoddan foydalanamiz.
         const best = candidates.reduce((a, b) => (a.localScore >= b.localScore ? a : b));
@@ -208,12 +212,13 @@ export class MatchingService {
     });
   }
 
-  private toHit(c: Candidate, score?: number): MatchHit {
+  private toHit(c: Candidate, score?: number, substance?: string): MatchHit {
     return {
       competitorFile: c.competitorFile,
       competitorCurrency: c.competitorCurrency,
       product: c.product,
       score: score ?? c.localScore,
+      substance,
     };
   }
 

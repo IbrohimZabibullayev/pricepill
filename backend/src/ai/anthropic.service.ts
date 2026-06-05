@@ -11,6 +11,8 @@ export interface AiMatchResult {
   candidateIndex: number;
   /** AI ishonch darajasi (0-1) */
   confidence: number;
+  /** Mos kelgan faol modda (INN) — foydalanuvchi tekshirishi uchun. Moslik yo'q bo'lsa bo'sh. */
+  substance?: string;
 }
 
 /** AI ustun aniqlash natijasi — har maydon uchun 0-asosli indeks yoki -1 */
@@ -268,9 +270,11 @@ Matching rules:
 
 Confidence: set it to your GENUINE certainty that it is the same drug. Use a high value (>=0.8) only when the active substance, form and strength clearly agree. If you are guessing, the confidence is low and you should return -1 instead.
 
+"substance": the international generic name (INN) of the shared active ingredient that justifies the match, written in Russian Cyrillic (e.g. "Азитромицин", "Парацетамол", "Амлодипин"). If candidateIndex is -1, set substance to "".
+
 Respond ONLY with a valid JSON array, no explanation.
 Format:
-[{"ownIndex": <number>, "candidateIndex": <number or -1>, "confidence": <0.0-1.0>}, ...]
+[{"ownIndex": <number>, "candidateIndex": <number or -1>, "confidence": <0.0-1.0>, "substance": "<INN or empty>"}, ...]
 
 Products to match:
 ${items.join('\n\n')}`;
@@ -283,12 +287,19 @@ ${items.join('\n\n')}`;
       if (!jsonMatch) return [];
       const parsed = JSON.parse(jsonMatch[0]);
       if (!Array.isArray(parsed)) return [];
-      return parsed.filter(
-        (r: any) =>
-          typeof r.ownIndex === 'number' &&
-          typeof r.candidateIndex === 'number' &&
-          typeof r.confidence === 'number',
-      ) as AiMatchResult[];
+      return parsed
+        .filter(
+          (r: any) =>
+            typeof r.ownIndex === 'number' &&
+            typeof r.candidateIndex === 'number' &&
+            typeof r.confidence === 'number',
+        )
+        .map((r: any) => ({
+          ownIndex: r.ownIndex,
+          candidateIndex: r.candidateIndex,
+          confidence: r.confidence,
+          substance: typeof r.substance === 'string' ? r.substance.trim() : undefined,
+        })) as AiMatchResult[];
     } catch {
       this.logger.error('AI javobini parse qilishda xato. Javob:', text.slice(0, 200));
       return [];

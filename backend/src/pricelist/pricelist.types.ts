@@ -27,6 +27,8 @@ export interface MatchHit {
   competitorCurrency: Currency;
   product: Product;
   score: number; // 0..1 moslik aniqligi
+  /** AI aniqlagan mos faol modda (INN) — nega mos kelgani; lokal moslikda yo'q. */
+  substance?: string;
 }
 
 export interface ComparisonRow {

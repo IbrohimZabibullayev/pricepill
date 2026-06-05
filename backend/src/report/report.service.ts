@@ -57,6 +57,7 @@ export class ReportService {
       '№',
       'Mening dorim',
       'Raqobatchi dorisi',
+      'Faol modda', // NEGA mos kelgani — AI shu modda bo'yicha solishtirgan
       'Mening narxim',
       'Raqobatdagi narx',
       `Narx farqi`,
@@ -102,16 +103,19 @@ export class ReportService {
       // Raqobatchining AYNAN qaysi dorisi mos kelgani — moslik to'g'riligini
       // ko'z bilan tekshirish uchun. Bo'lmasa noto'g'ri taqqoslash ko'rinmas edi.
       this.setCell(row.getCell(3), compProduct?.name ?? '—', undefined, 'left');
-      this.setCell(row.getCell(4), money(r.own.sellPrice, ownCcy), undefined, 'right');
-      this.setCell(row.getCell(5), compPriceText, undefined, 'right');
+      // Faol modda — AI shu umumiy modda bo'yicha mos qilgan (brend≈generik
+      // holatlarni o'zingiz tekshirishingiz uchun). Lokal moslikda bo'lmasligi mumkin.
+      this.setCell(row.getCell(4), r.bestHit?.substance || '—', undefined, 'left');
+      this.setCell(row.getCell(5), money(r.own.sellPrice, ownCcy), undefined, 'right');
+      this.setCell(row.getCell(6), compPriceText, undefined, 'right');
       // Narx farqi — har doim MENING valyutamda.
-      this.setCell(row.getCell(6), r.diff != null ? money(r.diff, ownCcy) : '—', undefined, 'right');
-      this.setCell(row.getCell(7), sellPct, '0.0%', 'right');
-      this.setCell(row.getCell(8), r.own.manufacturer || '—', undefined, 'left');
-      this.setCell(row.getCell(9), compProduct?.manufacturer || '—', undefined, 'left');
-      this.setCell(row.getCell(10), r.own.country || '—', undefined, 'left');
-      this.setCell(row.getCell(11), compProduct?.country || '—', undefined, 'left');
-      this.setCell(row.getCell(12), r.bestHit?.competitorFile ?? '—', undefined, 'left');
+      this.setCell(row.getCell(7), r.diff != null ? money(r.diff, ownCcy) : '—', undefined, 'right');
+      this.setCell(row.getCell(8), sellPct, '0.0%', 'right');
+      this.setCell(row.getCell(9), r.own.manufacturer || '—', undefined, 'left');
+      this.setCell(row.getCell(10), compProduct?.manufacturer || '—', undefined, 'left');
+      this.setCell(row.getCell(11), r.own.country || '—', undefined, 'left');
+      this.setCell(row.getCell(12), compProduct?.country || '—', undefined, 'left');
+      this.setCell(row.getCell(13), r.bestHit?.competitorFile ?? '—', undefined, 'left');
 
       // Qimmat sotyapsiz — yumshoq qizil, arzon — yumshoq yashil
       const color =
@@ -123,7 +127,7 @@ export class ReportService {
       }
     });
 
-    ws.autoFilter = { from: 'A1', to: 'L1' };
+    ws.autoFilter = { from: 'A1', to: 'M1' };
     this.autofitColumns(ws);
   }
 
